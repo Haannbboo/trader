@@ -7,6 +7,8 @@ Boots:
   - an InProcessBus (so /stream can be exercised too)
   - a ToolLayer combining them
   - an AgentGateway served on 127.0.0.1:<random-free-port>
+  - a background task that publishes sample events to the bus on a 500ms
+    cadence, so the e2e test's /stream subscriber has something to consume
 
 Prints the port as JSON to stdout ONCE bound, then blocks serving uvicorn
 until killed (SIGTERM from the test runner's afterAll). The TS test reads
@@ -37,7 +39,8 @@ for _src in (REPO / "packages").glob("**/src"):
 
 from apps.live.pi_gateway import AgentGateway  # noqa: E402
 from bus.inprocess import InProcessBus  # noqa: E402
-from contracts.schema import Balance, Order, OrderStatus  # noqa: E402
+from contracts.gateway import BusEvent  # noqa: E402
+from contracts.schema import Balance, EventType, Order, OrderStatus  # noqa: E402
 from tools import ToolLayer  # noqa: E402
 
 
@@ -73,6 +76,27 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
+async def _publish_samples(bus: InProcessBus) -> None:
+    """Publish a `BusEvent`-shaped fill to the bus every 500ms, forever (until
+    cancelled). Gives the e2e test's /stream subscriber a moving target to
+    latch onto without timing pressure on the connect path."""
+    i = 0
+    while True:
+        await asyncio.sleep(0.5)
+        event = BusEvent(
+            type=EventType.FILL,
+            source="harness",
+            payload={"sequence": i, "symbol": "AAPL", "side": "buy", "quantity": "10"},
+            ts_event=datetime.now(timezone.utc),
+        )
+        try:
+            await bus.publish(event)
+        except Exception:
+            # Bus is shutting down; cancellation will fire next iteration.
+            return
+        i += 1
+
+
 async def main() -> None:
     port = free_port()
     bus = InProcessBus()
@@ -82,9 +106,19 @@ async def main() -> None:
     # The TS test reads this line to discover the port. Flush so the test
     # doesn't have to wait on stdio buffering.
     print(json.dumps({"port": port}), flush=True)
+
+    # Background publisher: see _publish_samples docstring. Cancellation
+    # flows through bus.stop() in the finally block below.
+    publisher = asyncio.create_task(_publish_samples(bus))
+
     try:
         await gateway.serve(host="127.0.0.1", port=port)
     finally:
+        publisher.cancel()
+        try:
+            await publisher
+        except asyncio.CancelledError:
+            pass
         await bus.stop()
 
 

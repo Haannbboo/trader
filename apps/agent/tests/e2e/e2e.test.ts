@@ -88,12 +88,15 @@ async function stopGateway() {
   gatewayProcess = undefined;
   proc.kill("SIGTERM");
   // Give it a moment to shut down cleanly; then SIGKILL if it's still there.
+  // (Only one `once` per exit — calling it twice hangs on the second.)
   const exited = await Promise.race([
     once(proc, "exit").then(() => true),
     sleep(2000).then(() => false),
   ]);
-  if (!exited) proc.kill("SIGKILL");
-  await once(proc, "exit").catch(() => {});
+  if (!exited) {
+    proc.kill("SIGKILL");
+    await once(proc, "exit").catch(() => {});
+  }
 }
 
 beforeAll(async () => {
@@ -138,20 +141,52 @@ describe("end-to-end: TS forwarder against a real Python AgentGateway", () => {
     expect(first.text).toContain('"cash"');
   });
 
-  it("subscribeEvents connects to /stream and yields typed BusEvents", async () => {
-    // The stub bus has no publishers, so the connection is open but the
-    // stream stays empty. We just verify the consumer can open it and
-    // break out cleanly within a short window.
+  it("/stream delivers a published BusEvent with the expected wire shape", async () => {
+    /** Cross-language canary for the hand-written `BusEvent` type.
+     *
+     *  The harness publishes a `BusEvent` (which is `Event[dict[str, Any]]`
+     *  in `contracts.gateway`) every 500ms. This test subscribes to /stream,
+     *  receives one event, and asserts that every field declared in
+     *  `src/forwarder/types.ts` is present and well-typed on the wire. A
+     *  drift in either direction (Pydantic changes the envelope, or the TS
+     *  hand-written type widens/narrows) makes this test fail. */
     const events: BusEvent[] = [];
     const collect = (async () => {
       for await (const e of subscribeEvents({ gatewayUrl, events: ["fill"] })) {
         events.push(e);
-        if (events.length > 0) break;
+        if (events.length >= 1) break;
       }
     })();
 
-    // No events will arrive (nothing publishes), so race against a timeout.
-    await Promise.race([collect, sleep(500)]);
-    expect(events).toEqual([]);
+    await Promise.race([
+      collect,
+      sleep(5000).then(() => {
+        throw new Error("timed out waiting for a /stream event from the harness");
+      }),
+    ]);
+
+    expect(events).toHaveLength(1);
+    const e = events[0];
+    if (!e) throw new Error("unreachable: events.length === 1");
+
+    // Envelope fields. Every name MUST be present; every value MUST match
+    // the BusEvent type in src/forwarder/types.ts.
+    expect(e.type).toBe("fill");
+    expect(e.source).toBe("harness");
+    expect(typeof e.event_id).toBe("string");
+    // UUID v4 (lowercase, hyphenated).
+    expect(e.event_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    // ISO 8601 timestamps.
+    expect(typeof e.ts_event).toBe("string");
+    expect(e.ts_event).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    expect(typeof e.ts_ingest).toBe("string");
+    expect(e.ts_ingest).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    // payload is `Record<string, unknown>` — a non-null object on the wire.
+    expect(e.payload).toBeTypeOf("object");
+    expect(e.payload).not.toBeNull();
+    expect((e.payload as { symbol?: unknown }).symbol).toBe("AAPL");
+    // seq is `number | null`. The harness never sets it, so Pydantic's
+    // default `None` serializes to JSON `null`, which parses as JS `null`.
+    expect(e.seq === null || typeof e.seq === "number").toBe(true);
   });
 });
