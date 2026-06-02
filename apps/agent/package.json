@@ -1,19 +1,11 @@
 {
-  "name": "tool-client",
+  "name": "agent",
   "version": "0.1.0",
   "private": true,
-  "description": "Thin TypeScript forwarder for the AgentGateway HTTP seam. Derives an AgentTool[] from the gateway's GET /tools and forwards each tool's execute to POST /dispatch.",
+  "description": "One-shot Pi Agent driver. Reads a prompt, fetches tools from the AgentGateway via the local forwarder, drives an Agent loop, prints the result.",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
-  },
-  "files": ["dist", "README.md"],
   "scripts": {
+    "start": "tsx src/main.ts",
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -25,14 +17,14 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@earendil-works/pi-agent-core": "^0.78.0",
+    "@earendil-works/pi-ai": "^0.78.0",
     "@sinclair/typebox": "^0.34.13"
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-agent-core": "*"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   }

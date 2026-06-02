@@ -1,7 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import { describe, expect, it, vi } from "vitest";
-import { createTools } from "../src/index.js";
-import type { ToolSpec } from "../src/types.js";
+import { createTools } from "../../src/forwarder/index.js";
+import type { ToolSpec } from "../../src/forwarder/types.js";
 
 /** Pull the first tool out of `createTools`'s return, asserting via the test
  *  runner that exactly one was produced. Replaces `tools[0]!` (which biome's

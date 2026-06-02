@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { subscribeEvents } from "../src/index.js";
-import { parseSseData, parseSseStream } from "../src/stream.js";
-import type { BusEvent } from "../src/types.js";
+import { subscribeEvents } from "../../src/forwarder/index.js";
+import { parseSseData, parseSseStream } from "../../src/forwarder/stream.js";
+import type { BusEvent } from "../../src/forwarder/types.js";
 
 function fakeFetch(responses: ReadonlyArray<() => Response>) {
   const fn = vi.fn<typeof fetch>();

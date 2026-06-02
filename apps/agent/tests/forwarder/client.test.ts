@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { BadRequestError, GatewayClient, RiskRejectedError } from "../src/index.js";
-import type { BusEvent } from "../src/types.js";
+import { BadRequestError, GatewayClient, RiskRejectedError } from "../../src/forwarder/index.js";
+import type { BusEvent } from "../../src/forwarder/types.js";
 
 /**
  * Build a fetch mock from a list of pre-canned responses, consumed in order.

@@ -3,10 +3,10 @@ gateway — Pydantic models for the AgentGateway HTTP seam.
 
 These are the data shapes that cross the HTTP boundary exposed by
 apps/live/pi_gateway.py. They are the single source of truth for the
-cross-language wire contract; the TypeScript side (`packages/tool-client/`)
-hand-writes matching types in `src/types.ts`, and a Python guard test
-asserts the real gateway responses validate against these models so
-drift in either direction gets caught.
+cross-language wire contract; the TypeScript side (`apps/agent/`)
+hand-writes matching types in `src/forwarder/types.ts`, and a Python
+guard test asserts the real gateway responses validate against these
+models so drift in either direction gets caught.
 
 `ToolSpec` is the wire format for one entry in `GET /tools`. `DispatchRequest`
 is the request body for `POST /dispatch`. `BusEvent` is the SSE data line on

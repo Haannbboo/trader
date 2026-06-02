@@ -16,8 +16,8 @@ import readline from "node:readline";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createTools, subscribeEvents } from "../../src/index.js";
-import type { BusEvent } from "../../src/types.js";
+import { createTools, subscribeEvents } from "../../src/forwarder/index.js";
+import type { BusEvent } from "../../src/forwarder/types.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..", "..", "..", "..");

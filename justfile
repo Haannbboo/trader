@@ -41,3 +41,7 @@ backtest:
 # Run CLI
 cli *args:
     uv run python apps/cli/main.py {{args}}
+
+# Drive a one-shot Pi Agent against the live gateway (apps/live must be running)
+agent *args:
+    cd apps/agent && pnpm start -- {{args}}

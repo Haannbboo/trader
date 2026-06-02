@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import { describe, expect, it } from "vitest";
-import { jsonSchemaToTypeBox } from "../src/schemas.js";
+import { jsonSchemaToTypeBox } from "../../src/forwarder/schemas.js";
 
 describe("jsonSchemaToTypeBox", () => {
   it("converts an empty object", () => {

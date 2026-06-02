@@ -30,8 +30,10 @@ We considered four approaches:
   `DispatchRequest`, and `BusEvent` (aliased as `Event[dict[str, Any]]`
   from `contracts.schema`).
 - **The TS side maintains hand-written equivalents** in
-  `packages/tool-client/src/types.ts`. They mirror the Pydantic shapes
+  `apps/agent/src/forwarder/types.ts`. They mirror the Pydantic shapes
   by hand and are updated in the same commit as any Pydantic change.
+  The forwarder lives inside the agent app (one consumer today) rather
+  than as a separate package — see the Apps section below.
 - **A Python guard test in `tests/integration/test_pi_gateway.py` asserts
   real gateway responses validate against the Pydantic models.** Adding
   a required field to `ToolSpec`, removing a field, or having the
@@ -78,12 +80,13 @@ file that no code parses).
 
 - **One fewer moving part** in the repo: no codegen script, no
   generated `contracts/` directory, no `just gen-contracts*` targets.
-- **`src/types.ts` becomes a load-bearing mirror.** Drift between it
-  and the Pydantic models is caught only when Python changes — the
-  Python guard test fires before the TS side has had a chance to drift
-  independently. If a TS-side type widens (e.g., relaxes a required
-  field), the Python test won't catch it; the round-trip e2e test
-  (`packages/tool-client/tests/e2e/`) is the second line of defense.
+- **`apps/agent/src/forwarder/types.ts` becomes a load-bearing mirror.**
+  Drift between it and the Pydantic models is caught only when Python
+  changes — the Python guard test fires before the TS side has had a
+  chance to drift independently. If a TS-side type widens (e.g.,
+  relaxes a required field), the Python test won't catch it; the
+  round-trip e2e test (`apps/agent/tests/e2e/`) is the second line of
+  defense.
 - **The `pyrefly: ignore [missing-import]` markers and other
   "cross-language model" aspirations remain aspirational.** This ADR
   codifies that we don't have the machinery for them yet, on purpose.
@@ -91,3 +94,13 @@ file that no code parses).
   script, schema files, justfile targets) are in git history; reviving
   them is a `git revert` plus re-installation of the corresponding test
   suite, not a fresh design.
+
+## Apps
+
+The TS forwarder lives inside the agent app (`apps/agent/src/forwarder/`)
+rather than as a separate library, because there is exactly one consumer
+(the agent runner in `apps/agent/src/main.ts`). If a second consumer
+appears — a CLI, a dashboard, a different agent variant — the forwarder
+should be extracted into a `clients/` top-level zone at that point. The
+extraction is a small refactor (move the directory, add a `package.json`
+and `tsconfig.json`, add a pnpm workspace), not a rewrite.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { VERSION } from "../src/index.js";
+import { VERSION } from "../../src/forwarder/index.js";
 
 describe("tool-client skeleton", () => {
   it("exports a version constant", () => {
