@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Minimal AgentGateway harness for the tools-client end-to-end test.
+Minimal AgentGateway harness for the tool-client end-to-end test.
 
 Boots:
   - a stub AccountService (so /tools returns account tools and /dispatch works)

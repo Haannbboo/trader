@@ -1,5 +1,5 @@
 {
-  "name": "tools-client",
+  "name": "tool-client",
   "version": "0.1.0",
   "private": true,
   "description": "Thin TypeScript forwarder for the AgentGateway HTTP seam. Derives an AgentTool[] from the gateway's GET /tools and forwards each tool's execute to POST /dispatch.",

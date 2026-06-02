@@ -1,4 +1,4 @@
-# tools-client
+# tool-client
 
 Thin TypeScript forwarder for the [AgentGateway](../../apps/live/pi_gateway.py)
 HTTP seam. Given a gateway URL, this package produces an `AgentTool[]` derived
