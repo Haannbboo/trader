@@ -3,14 +3,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import AsyncIterator
 
-from adapters._base import BaseAdapter
-from contracts.ports import MarketChannel, SourceCapabilities, MarketSourcePort
+from adapters._base import BaseMarketAdapter
+from contracts.ports import MarketChannel, SourceCapabilities
 from contracts.schema import Bar, Event, Instrument, Quote, Timeframe
 from plugins import register
 
 
 @register("market", "ibkr")
-class IBKRMarketAdapter(BaseAdapter, MarketSourcePort):
+class IBKRMarketAdapter(BaseMarketAdapter):
     name = "ibkr"
 
     def __init__(self) -> None:

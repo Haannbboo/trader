@@ -1,13 +1,13 @@
 from decimal import Decimal
 from datetime import datetime, timezone
 from typing import AsyncIterator, List
-from contracts import Position, Balance, Order, Event, AccountSourcePort
+from contracts import Position, Balance, Order, Event
 from plugins import register
-from adapters._base import BaseAdapter
+from adapters._base import BaseAccountAdapter
 
 
 @register("account", "ibkr")
-class IBKRAccountAdapter(BaseAdapter, AccountSourcePort):
+class IBKRAccountAdapter(BaseAccountAdapter):
     """Interactive Brokers Account and Execution Adapter (Skeleton)."""
 
     def __init__(self) -> None:

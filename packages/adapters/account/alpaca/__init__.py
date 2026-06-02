@@ -1,17 +1,18 @@
 from decimal import Decimal
 from datetime import datetime, timezone
 from typing import AsyncIterator, List
-from contracts import Position, Balance, Order, Event, AccountSourcePort
+from contracts import Position, Balance, Order, Event
 from plugins import register
-from adapters._base import BaseAdapter
+from adapters._base import BaseAccountAdapter
 
 
 @register("account", "alpaca")
-class AlpacaAccountAdapter(BaseAdapter, AccountSourcePort):
+class AlpacaAccountAdapter(BaseAccountAdapter):
     """Alpaca Brokerage Account and Execution Adapter (Skeleton)."""
 
     def __init__(self) -> None:
         super().__init__(name="AlpacaAccountAdapter", rate_limit=100)
+
 
     async def get_positions(self) -> List[Position]:
         return []

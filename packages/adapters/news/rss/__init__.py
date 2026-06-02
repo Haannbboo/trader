@@ -1,11 +1,11 @@
 from typing import AsyncIterator
-from contracts import NewsFilter, NewsItem, Event, NewsSourcePort
+from contracts import NewsFilter, NewsItem, Event
 from plugins import register
-from adapters._base import BaseAdapter
+from adapters._base import BaseNewsAdapter
 
 
 @register("news", "rss")
-class RSSNewsAdapter(BaseAdapter, NewsSourcePort):
+class RSSNewsAdapter(BaseNewsAdapter):
     """RSS Feed Parser Adapter (Skeleton)."""
 
     def __init__(self) -> None:
