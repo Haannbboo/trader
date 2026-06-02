@@ -8,6 +8,7 @@ cross-source dedup is NewsService's job; this base only normalizes one source.)
 
 Structurally satisfies NewsSourcePort. Depends on contracts + transport + base.
 """
+
 from __future__ import annotations
 
 from typing import AsyncIterator

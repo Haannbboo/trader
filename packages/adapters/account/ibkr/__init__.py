@@ -22,7 +22,7 @@ class IBKRAccountAdapter(BaseAccountAdapter):
             equity=Decimal("100000.00"),
             buying_power=Decimal("100000.00"),
             ts_event=datetime.now(timezone.utc),
-            currency="USD"
+            currency="USD",
         )
 
     async def get_orders(self) -> List[Order]:

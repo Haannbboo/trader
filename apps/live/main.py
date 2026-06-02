@@ -8,7 +8,6 @@ for p in (root_dir / "packages").glob("**/src"):
     sys.path.insert(0, str(p))
 
 
-
 import anyio
 import os
 from loguru import logger
@@ -28,16 +27,6 @@ from tools import ToolLayer
 from agent import TraderAgentHarness
 
 # Import all adapters and features to auto-register
-import adapters.market.polygon
-import adapters.market.alpaca
-import adapters.news.benzinga
-import adapters.news.rss
-import adapters.account.alpaca
-import features.technical.rsi
-import features.technical.rolling_vol
-import features.technical.returns
-import features.crosssectional.rank
-import features.sentiment
 
 
 async def main() -> None:
@@ -103,7 +92,9 @@ async def main() -> None:
 
     market_service = MarketService(sources=list(market_adapters.values()), bus=bus)
     news_service = NewsService(sources=list(news_adapters.values()), bus=bus)
-    account_service = AccountService(sources=list(account_adapters.values()), bus=bus, guardrail=guardrail)
+    account_service = AccountService(
+        sources=list(account_adapters.values()), bus=bus, guardrail=guardrail
+    )
 
     # Initialize feature runtime and service facade
     feature_runtime = FeatureRuntime(bus=bus)
@@ -119,7 +110,9 @@ async def main() -> None:
                 proc = proc_cls()
                 proc.initialize(item)
                 feature_runtime.add_processor(proc)
-                logger.info(f"Loaded and initialized feature '{feat_name}' ({category}).")
+                logger.info(
+                    f"Loaded and initialized feature '{feat_name}' ({category})."
+                )
             except Exception as e:
                 logger.error(f"Failed to load feature '{feat_name}': {e}")
 
@@ -128,14 +121,14 @@ async def main() -> None:
         market=market_service,
         news=news_service,
         account=account_service,
-        features=feature_service
+        features=feature_service,
     )
 
     agent = TraderAgentHarness(
         bus=bus,
         tools=tools,
         guardrail=guardrail,
-        strategy_config=config.get("agent", {})
+        strategy_config=config.get("agent", {}),
     )
 
     # 8. Start system runtimes
@@ -151,7 +144,6 @@ async def main() -> None:
         # Under MarketDataService, subscribe is called directly
         # e.g., market_service.subscribe(instruments, channels)
         pass
-
 
         logger.info("Trader Live System is fully operational. Running event loop...")
 

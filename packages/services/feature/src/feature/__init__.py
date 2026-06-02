@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from typing import AsyncIterator, Optional
 from contracts import (
-    FeatureValue, Instrument, Event,
-    FeatureService as FeatureServiceInterface
+    FeatureValue,
+    Instrument,
+    Event,
+    FeatureService as FeatureServiceInterface,
 )
 from feature.runtime import FeatureRuntime
 
@@ -19,7 +21,9 @@ class FeatureService(FeatureServiceInterface):
         self.runtime = runtime
 
     async def get_value(
-        self, feature: str, instrument: Optional[Instrument] = None,
+        self,
+        feature: str,
+        instrument: Optional[Instrument] = None,
     ) -> FeatureValue:
         """Get the latest computed feature value for a given instrument."""
         raise NotImplementedError()

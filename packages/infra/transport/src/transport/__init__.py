@@ -49,7 +49,9 @@ class WebSocketConnection:
             except Exception as e:
                 if not self._running:
                     break
-                logger.warning(f"WebSocket disconnected from {self.url} ({e}). Reconnecting in {backoff}s...")
+                logger.warning(
+                    f"WebSocket disconnected from {self.url} ({e}). Reconnecting in {backoff}s..."
+                )
                 await anyio.sleep(backoff)
                 backoff = min(backoff * self.backoff_factor, self.max_backoff)
 
@@ -76,8 +78,7 @@ class RateLimiter:
 
             # Replenish tokens based on time elapsed
             self.tokens = min(
-                self.rate_limit,
-                self.tokens + elapsed * (self.rate_limit / self.period)
+                self.rate_limit, self.tokens + elapsed * (self.rate_limit / self.period)
             )
 
             if self.tokens >= 1.0:
@@ -92,7 +93,9 @@ class RateLimiter:
 class Poller:
     """Invokes a task periodically using a configurable polling interval."""
 
-    def __init__(self, interval_seconds: float, task: Callable[[], Awaitable[None]]) -> None:
+    def __init__(
+        self, interval_seconds: float, task: Callable[[], Awaitable[None]]
+    ) -> None:
         self.interval = interval_seconds
         self.task = task
         self._running = False

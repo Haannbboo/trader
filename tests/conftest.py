@@ -9,5 +9,3 @@ sys.path.insert(0, str(root_dir / "packages"))  # So we can import adapters / fe
 # Add all package src directories to path
 for p in (root_dir / "packages").glob("**/src"):
     sys.path.insert(0, str(p))
-
-

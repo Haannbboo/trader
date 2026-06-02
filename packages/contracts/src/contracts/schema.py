@@ -23,12 +23,13 @@ Key design decisions (don't undo these without thinking):
   DTOs; they travel as FeatureValue payloads produced by the feature layer.
   This is what keeps the derivation layer cleanly separable.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import Generic, Optional, TypeVar, Union
+from typing import Generic, Optional, TypeVar
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -112,7 +113,7 @@ class _Base(BaseModel):
 # so the whole system speaks Instrument.
 # ---------------------------------------------------------------------------
 class Instrument(_Base):
-    symbol: str                       # underlying or ticker, e.g. "AAPL", "SPX"
+    symbol: str  # underlying or ticker, e.g. "AAPL", "SPX"
     asset_class: AssetClass
     exchange: Optional[str] = None
     currency: str = "USD"
@@ -149,7 +150,7 @@ class Quote(_Base):
 class Bar(_Base):
     instrument: Instrument
     timeframe: Timeframe
-    ts_open: datetime                 # start of the bar interval
+    ts_open: datetime  # start of the bar interval
     open: Decimal
     high: Decimal
     low: Decimal
@@ -163,13 +164,13 @@ class Bar(_Base):
 # News DTO — kept RAW. Sentiment is derived and lives in FeatureValue.
 # ---------------------------------------------------------------------------
 class NewsItem(_Base):
-    id: str                           # source-native id, used for dedup
+    id: str  # source-native id, used for dedup
     source: str
     headline: str
     published_at: datetime
     body: Optional[str] = None
     url: Optional[str] = None
-    instruments: tuple[Instrument, ...] = ()   # tickers the source tagged
+    instruments: tuple[Instrument, ...] = ()  # tickers the source tagged
     language: Optional[str] = None
 
 
@@ -179,7 +180,8 @@ class NewsItem(_Base):
 class Order(_Base):
     """Carries both intent (set by us before sending) and broker-populated
     state (filled in via account events). Frozen, so an update is a new copy."""
-    client_order_id: str              # our idempotency key, set before sending
+
+    client_order_id: str  # our idempotency key, set before sending
     instrument: Instrument
     side: Side
     quantity: Decimal
@@ -210,7 +212,7 @@ class Fill(_Base):
 
 class Position(_Base):
     instrument: Instrument
-    quantity: Decimal                 # signed: negative = short
+    quantity: Decimal  # signed: negative = short
     avg_price: Decimal
     ts_event: datetime
     market_price: Optional[Decimal] = None
@@ -219,7 +221,7 @@ class Position(_Base):
 
 class Balance(_Base):
     cash: Decimal
-    equity: Decimal                   # cash + market value of positions
+    equity: Decimal  # cash + market value of positions
     buying_power: Decimal
     ts_event: datetime
     currency: str = "USD"
@@ -230,11 +232,11 @@ class Balance(_Base):
 # Exposed to the agent the same way market data is.
 # ---------------------------------------------------------------------------
 class FeatureValue(_Base):
-    feature: str                      # e.g. "rsi_14", "rolling_vol_20", "news_sentiment"
+    feature: str  # e.g. "rsi_14", "rolling_vol_20", "news_sentiment"
     value: float
-    ts_event: datetime                # the input-data timestamp this value is "as of"
-    instrument: Optional[Instrument] = None   # None => market-wide / cross-sectional
-    window: Optional[str] = None      # human-readable window/param tag
+    ts_event: datetime  # the input-data timestamp this value is "as of"
+    instrument: Optional[Instrument] = None  # None => market-wide / cross-sectional
+    window: Optional[str] = None  # human-readable window/param tag
     meta: Optional[dict] = None
 
 
@@ -251,13 +253,14 @@ class Event(_Base, Generic[PayloadT]):
     ts_ingest is when WE received/normalized it. Keep both — their gap is your
     latency signal, and a faithful replay must order by ts_event.
     """
+
     type: EventType
-    source: str                       # which adapter/source produced this
+    source: str  # which adapter/source produced this
     payload: PayloadT
     ts_event: datetime
     ts_ingest: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     event_id: UUID = Field(default_factory=uuid4)
-    seq: Optional[int] = None         # per-source monotonic seq, for ordering/replay
+    seq: Optional[int] = None  # per-source monotonic seq, for ordering/replay
 
 
 # Convenience aliases for typed handlers in adapters/services:

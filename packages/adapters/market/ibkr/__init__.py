@@ -25,13 +25,18 @@ class IBKRMarketAdapter(BaseMarketAdapter):
         raise NotImplementedError()
 
     async def get_bars(
-        self, instrument: Instrument, timeframe: Timeframe,
-        start: datetime, end: datetime,
+        self,
+        instrument: Instrument,
+        timeframe: Timeframe,
+        start: datetime,
+        end: datetime,
     ) -> list[Bar]:
         return []
 
     async def subscribe(
-        self, instruments: list[Instrument], channels: list[MarketChannel],
+        self,
+        instruments: list[Instrument],
+        channels: list[MarketChannel],
     ) -> AsyncIterator[Event]:
         if False:
             yield

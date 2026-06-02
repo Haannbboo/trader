@@ -15,6 +15,7 @@ Domain = str  # "market" | "news" | "account" | "feature"
 class SourceConfig(BaseModel):
     """One enabled source from config. (Really lives in ta-config; kept here so
     the registry contract is self-contained.)"""
+
     name: str
     params: dict = {}
 
@@ -32,6 +33,7 @@ class Registry:
 
     def register(self, domain: Domain, name: str) -> Callable[[Type[T]], Type[T]]:
         """Decorator. Records the class under (domain, name); returns it unchanged."""
+
         def decorator(cls: Type[T]) -> Type[T]:
             dom_lower = domain.lower()
             if dom_lower not in self._map:
@@ -39,6 +41,7 @@ class Registry:
             self._map[dom_lower][name.lower()] = cls
             logger.info(f"Registered Class: {domain}/{name} -> {cls.__name__}")
             return cls
+
         return decorator
 
     def get(self, domain: Domain, name: str) -> Type[Any]:
@@ -46,7 +49,9 @@ class Registry:
         dom_lower = domain.lower()
         name_lower = name.lower()
         if dom_lower not in self._map or name_lower not in self._map[dom_lower]:
-            raise KeyError(f"Unknown plugin requested: domain='{domain}', name='{name}'")
+            raise KeyError(
+                f"Unknown plugin requested: domain='{domain}', name='{name}'"
+            )
         return self._map[dom_lower][name_lower]
 
     def names(self, domain: Domain) -> list[str]:
@@ -54,7 +59,9 @@ class Registry:
         dom_lower = domain.lower()
         return list(self._map.get(dom_lower, {}).keys())
 
-    def build_sources(self, domain: Domain, enabled: Sequence[SourceConfig]) -> list[Any]:
+    def build_sources(
+        self, domain: Domain, enabled: Sequence[SourceConfig]
+    ) -> list[Any]:
         """Instantiate the enabled adapters for a domain from config."""
         instances = []
         for cfg in enabled:
@@ -79,7 +86,6 @@ class Registry:
             except Exception as e:
                 logger.error(f"Failed to build feature processor '{cfg.name}': {e}")
         return instances
-
 
 
 # Module-level singleton + thin convenience wrappers (what callers actually use).

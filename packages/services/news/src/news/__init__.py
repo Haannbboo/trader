@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import AsyncIterator
 from contracts import (
-    NewsFilter, NewsItem, Event, NewsSourcePort, Bus, NewsService as NewsServiceInterface
+    NewsFilter,
+    NewsItem,
+    Event,
+    NewsSourcePort,
+    Bus,
+    NewsService as NewsServiceInterface,
 )
 
 

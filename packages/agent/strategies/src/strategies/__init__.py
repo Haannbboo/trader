@@ -27,15 +27,15 @@ DEFAULT_STRATEGY_CONFIGS: Dict[str, Dict[str, Any]] = {
         "parameters": {
             "rsi_lower_bound": 30.0,
             "rsi_upper_bound": 70.0,
-            "min_sentiment_score": 0.2
-        }
+            "min_sentiment_score": 0.2,
+        },
     },
     "mean_reversion": {
         "prompt": MEAN_REVERSION_PROMPT,
         "parameters": {
             "rsi_lower_bound": 25.0,
             "rsi_upper_bound": 75.0,
-            "rank_threshold": 0.1
-        }
-    }
+            "rank_threshold": 0.1,
+        },
+    },
 }

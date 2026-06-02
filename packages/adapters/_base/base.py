@@ -9,10 +9,9 @@ Template-method split used throughout this file:
   - public methods (start/stop/health) own the COMMON flow;
   - `_`-prefixed hooks are the source-specific bits a concrete adapter fills in.
 """
+
 from __future__ import annotations
 
-import anyio
-from typing import Any
 from loguru import logger
 from transport import RateLimiter
 from contracts import SourceCapabilities, SourceMode, AssetClass
@@ -38,7 +37,7 @@ class BaseAdapter:
         self._capabilities = SourceCapabilities(
             mode=SourceMode.PUSH,
             supports_streaming=True,
-            asset_classes=(AssetClass.EQUITY,)
+            asset_classes=(AssetClass.EQUITY,),
         )
 
     @property

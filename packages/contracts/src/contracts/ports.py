@@ -26,17 +26,18 @@ from contracts.schema import (
 # Capability & filter contract objects (data, so: pydantic)
 # ---------------------------------------------------------------------------
 class SourceMode(str, Enum):
-    PUSH = "push"   # native streaming (websocket / SSE)
-    POLL = "poll"   # adapter polls and synthesizes a stream
+    PUSH = "push"  # native streaming (websocket / SSE)
+    POLL = "poll"  # adapter polls and synthesizes a stream
 
 
 class SourceCapabilities(BaseModel):
     """Every source DECLARES what it can do, so the service layer can route,
     failover, and set SLAs without hardcoding per-source knowledge."""
+
     mode: SourceMode
     supports_streaming: bool
     asset_classes: tuple[AssetClass, ...]
-    historical: bool = False               # can it serve get_bars / query over history?
+    historical: bool = False  # can it serve get_bars / query over history?
     rate_limit_per_sec: Optional[float] = None
     latency_hint_ms: Optional[float] = None
 
@@ -56,6 +57,7 @@ class NewsFilter(BaseModel):
 
 class Subscription(BaseModel):
     """Bus-level filter. An empty tuple on a dimension means 'match all'."""
+
     event_types: tuple[EventType, ...] = ()
     instruments: tuple[Instrument, ...] = ()
     sources: tuple[str, ...] = ()
@@ -67,6 +69,7 @@ class Subscription(BaseModel):
 @runtime_checkable
 class SourcePort(Protocol):
     """Lifecycle shared by every data source."""
+
     name: str
 
     @property
@@ -109,7 +112,7 @@ class AccountSourcePort(SourcePort, Protocol):
     async def get_orders(self) -> list[Order]: ...
     async def place_order(self, order: Order) -> Order: ...
     async def cancel_order(self, broker_order_id: str) -> None: ...
-    def subscribe(self) -> AsyncIterator[Event]: ...   # fills + order/position updates
+    def subscribe(self) -> AsyncIterator[Event]: ...  # fills + order/position updates
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +128,7 @@ class Bus(Protocol):
         *,
         group: Optional[str] = None,
     ) -> AsyncIterator[Event]: ...
+
     # `group`: durable buses use it for consumer-group fan-out / replay.
     # The in-process bus may ignore it. Keep it in the contract so callers
     # written now don't need changing when you swap implementations.
@@ -150,6 +154,7 @@ class Processor(Protocol):
     events of "returns" depends on the returns processor, so the runtime can
     order them.
     """
+
     name: str
 
     @property
@@ -158,7 +163,9 @@ class Processor(Protocol):
     @property
     def warmup_events(self) -> int: ...
 
-    async def on_event(self, event: Event) -> list[Event]: ...   # emits 0+ FEATURE events
+    async def on_event(
+        self, event: Event
+    ) -> list[Event]: ...  # emits 0+ FEATURE events
 
 
 # ---------------------------------------------------------------------------
@@ -170,11 +177,16 @@ class Processor(Protocol):
 class MarketDataService(Protocol):
     async def get_quote(self, instrument: Instrument) -> Quote: ...
     async def get_bars(
-        self, instrument: Instrument, timeframe: Timeframe,
-        start: datetime, end: datetime,
+        self,
+        instrument: Instrument,
+        timeframe: Timeframe,
+        start: datetime,
+        end: datetime,
     ) -> list[Bar]: ...
     def subscribe(
-        self, instruments: list[Instrument], channels: list[MarketChannel],
+        self,
+        instruments: list[Instrument],
+        channels: list[MarketChannel],
     ) -> AsyncIterator[Event]: ...
 
 
@@ -189,7 +201,9 @@ class AccountService(Protocol):
     async def get_positions(self) -> list[Position]: ...
     async def get_balance(self) -> Balance: ...
     async def get_orders(self) -> list[Order]: ...
-    async def place_order(self, order: Order) -> Order: ...   # MUST route through the guardrail
+    async def place_order(
+        self, order: Order
+    ) -> Order: ...  # MUST route through the guardrail
     async def cancel_order(self, broker_order_id: str) -> None: ...
     def subscribe(self) -> AsyncIterator[Event]: ...
 
@@ -199,7 +213,10 @@ class FeatureService(Protocol):
     """Exposes derived values to the tool layer the SAME way market data is
     exposed — to the agent a factor looks like just another queryable /
     subscribable field, even though it's computed by Processors under the hood."""
+
     async def get_value(
-        self, feature: str, instrument: Optional[Instrument] = None,
+        self,
+        feature: str,
+        instrument: Optional[Instrument] = None,
     ) -> FeatureValue: ...
     def subscribe(self, features: list[str]) -> AsyncIterator[Event]: ...

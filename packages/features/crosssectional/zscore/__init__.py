@@ -1,7 +1,5 @@
 from typing import Dict, Any, List
-from contracts import (
-    Event, Subscription, Processor
-)
+from contracts import Event, Subscription, Processor
 from plugins import register
 
 

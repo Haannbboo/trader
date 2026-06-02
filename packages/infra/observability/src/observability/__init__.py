@@ -2,6 +2,7 @@ import sys
 from loguru import logger
 from prometheus_client import Counter, Gauge, Histogram
 
+
 # Initialize default logger format and destinations
 def setup_logging(level: str = "INFO") -> None:
     logger.remove()
@@ -17,28 +18,25 @@ def setup_logging(level: str = "INFO") -> None:
 ORDER_COUNTER = Counter(
     "trader_orders_submitted_total",
     "Total number of orders submitted to brokers",
-    ["symbol", "side", "type"]
+    ["symbol", "side", "type"],
 )
 
 ORDER_FILL_COUNTER = Counter(
     "trader_orders_filled_total",
     "Total number of orders successfully filled",
-    ["symbol", "side"]
+    ["symbol", "side"],
 )
 
 POSITION_GAUGE = Gauge(
-    "trader_position_size",
-    "Current position size (shares/contracts)",
-    ["symbol"]
+    "trader_position_size", "Current position size (shares/contracts)", ["symbol"]
 )
 
 PORTFOLIO_VALUE_GAUGE = Gauge(
-    "trader_portfolio_value_dollars",
-    "Total portfolio value in dollars"
+    "trader_portfolio_value_dollars", "Total portfolio value in dollars"
 )
 
 LATENCY_HISTOGRAM = Histogram(
     "trader_processing_latency_seconds",
     "Time taken to process ticks and make trading decisions",
-    ["step"]
+    ["step"],
 )

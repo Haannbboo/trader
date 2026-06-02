@@ -8,9 +8,7 @@ for p in (root_dir / "packages").glob("**/src"):
     sys.path.insert(0, str(p))
 
 
-
 import anyio
-import os
 from decimal import Decimal
 from datetime import datetime, timedelta, timezone
 from loguru import logger
@@ -20,19 +18,13 @@ from observability import setup_logging
 from config import load_config
 from bus import InProcessBus
 from plugins import registry
-from contracts import (
-    Bar, Instrument, AssetClass, Event, EventType, Timeframe
-)
+from contracts import Bar, Instrument, AssetClass, Event, EventType, Timeframe
 from account import AccountService
 from feature import FeatureService
 from feature.runtime import FeatureRuntime
 from guardrail import Guardrail
 from tools import ToolLayer
 from agent import TraderAgentHarness
-
-import features.technical.rsi
-import features.technical.returns
-import adapters.account.alpaca
 
 
 async def main() -> None:
@@ -67,7 +59,9 @@ async def main() -> None:
     await mock_account.connect()
 
     guardrail = Guardrail(rules=[])
-    account_service = AccountService(sources=[mock_account], bus=bus, guardrail=guardrail)
+    account_service = AccountService(
+        sources=[mock_account], bus=bus, guardrail=guardrail
+    )
 
     # Pre-populate some historical features
     tools = ToolLayer(
@@ -81,7 +75,7 @@ async def main() -> None:
         bus=bus,
         tools=tools,
         guardrail=guardrail,
-        strategy_config=config.get("agent", {})
+        strategy_config=config.get("agent", {}),
     )
 
     await feature_runtime.start()
@@ -89,7 +83,9 @@ async def main() -> None:
 
     # 5. Replay loop (generate a deterministic series of bars simulating historical data)
     symbols = ["AAPL", "MSFT"]
-    current_time = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    current_time = datetime.strptime(start_date, "%Y-%m-%d").replace(
+        tzinfo=timezone.utc
+    )
     end_time = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
 
     price_state = {"AAPL": 150.0, "MSFT": 350.0}
@@ -115,17 +111,13 @@ async def main() -> None:
                 high=Decimal(str(price_state[symbol] + 2.0)),
                 low=Decimal(str(price_state[symbol] - 2.0)),
                 close=Decimal(str(price_state[symbol])),
-                volume=Decimal(str(10000 + step * 100))
+                volume=Decimal(str(10000 + step * 100)),
             )
             event = Event(
-                type=EventType.BAR,
-                source="backtest",
-                payload=bar,
-                ts_event=bar.ts_open
+                type=EventType.BAR, source="backtest", payload=bar, ts_event=bar.ts_open
             )
             # Publish to the bus which triggers FeatureService processing
             await bus.publish(event)
-
 
         current_time += timedelta(days=1)
         step += 1
@@ -139,7 +131,6 @@ async def main() -> None:
     logger.info("=== Backtest Complete ===")
     logger.info(f"Final Account Balance: {balances}")
     logger.info(f"Open Positions: {positions}")
-
 
     # Shutdown
     await agent.stop()

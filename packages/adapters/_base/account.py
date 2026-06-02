@@ -9,6 +9,7 @@ _normalize_* hooks. The idempotency + event-wrapping flow is written once here.
 Structurally satisfies AccountSourcePort. NOTE: hard risk limits live in the
 guardrail at the SERVICE layer; this base only does broker-protocol commonality.
 """
+
 from __future__ import annotations
 
 from typing import AsyncIterator

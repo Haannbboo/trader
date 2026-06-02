@@ -8,7 +8,6 @@ for p in (root_dir / "packages").glob("**/src"):
     sys.path.insert(0, str(p))
 
 
-
 import anyio
 import argparse
 from decimal import Decimal
@@ -16,9 +15,16 @@ from datetime import datetime, timezone
 from loguru import logger
 
 from bus import InProcessBus
-from contracts import Bar, Instrument, AssetClass, Timeframe, Event, EventType, Subscription
+from contracts import (
+    Bar,
+    Instrument,
+    AssetClass,
+    Timeframe,
+    Event,
+    EventType,
+    Subscription,
+)
 from plugins import registry
-import features.technical.rsi
 
 
 def run_feature(feature_name: str, period: int) -> None:
@@ -34,7 +40,23 @@ def run_feature(feature_name: str, period: int) -> None:
     logger.info(f"Running single feature '{feature_name}' processor...")
 
     # Feed dummy data
-    dummy_closes = [10.0, 10.5, 11.0, 10.8, 10.2, 9.8, 9.5, 9.6, 9.9, 10.4, 10.9, 11.5, 11.2, 10.7, 10.1]
+    dummy_closes = [
+        10.0,
+        10.5,
+        11.0,
+        10.8,
+        10.2,
+        9.8,
+        9.5,
+        9.6,
+        9.9,
+        10.4,
+        10.9,
+        11.5,
+        11.2,
+        10.7,
+        10.1,
+    ]
     instrument = Instrument(symbol="AAPL", asset_class=AssetClass.EQUITY)
     for i, close in enumerate(dummy_closes):
         bar = Bar(
@@ -45,24 +67,24 @@ def run_feature(feature_name: str, period: int) -> None:
             high=Decimal(str(close + 0.3)),
             low=Decimal(str(close - 0.3)),
             close=Decimal(str(close)),
-            volume=Decimal("1000")
+            volume=Decimal("1000"),
         )
         event = Event(
-            type=EventType.BAR,
-            source="cli",
-            payload=bar,
-            ts_event=bar.ts_open
+            type=EventType.BAR, source="cli", payload=bar, ts_event=bar.ts_open
         )
         emitted_events = anyio.run(proc.on_event, event)
         val = 0.0
         if emitted_events:
             val = emitted_events[0].payload.value
-        print(f"Step {i+1:02d} | Close: {close:5.2f} | Feature Out ({proc.name}): {val:6.2f}")
+        print(
+            f"Step {i+1:02d} | Close: {close:5.2f} | Feature Out ({proc.name}): {val:6.2f}"
+        )
 
 
 async def monitor_bus() -> None:
     """Starts InProcessBus and prints any message flowing through it."""
     import asyncio
+
     logger.info("Initializing bus monitor... (Press Ctrl+C to exit)")
     bus = InProcessBus()
     await bus.start()
@@ -94,9 +116,15 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # Feature command
-    feature_parser = subparsers.add_parser("feature", help="Run a single feature factor")
-    feature_parser.add_argument("--name", default="rsi", help="Name of the registered feature")
-    feature_parser.add_argument("--period", type=int, default=14, help="Feature lookback period")
+    feature_parser = subparsers.add_parser(
+        "feature", help="Run a single feature factor"
+    )
+    feature_parser.add_argument(
+        "--name", default="rsi", help="Name of the registered feature"
+    )
+    feature_parser.add_argument(
+        "--period", type=int, default=14, help="Feature lookback period"
+    )
 
     # Bus command
     subparsers.add_parser("bus", help="Listen and monitor event bus traffic")
@@ -111,8 +139,12 @@ def main() -> None:
     elif args.command == "bus":
         anyio.run(monitor_bus)
     elif args.command == "fixture":
-        logger.info("Fixture recorder active. Recording live stream to './fixtures/market/...'")
-        logger.info("Mock fixtures generated and saved to fixtures/conformance_mock.json")
+        logger.info(
+            "Fixture recorder active. Recording live stream to './fixtures/market/...'"
+        )
+        logger.info(
+            "Mock fixtures generated and saved to fixtures/conformance_mock.json"
+        )
     else:
         parser.print_help()
 

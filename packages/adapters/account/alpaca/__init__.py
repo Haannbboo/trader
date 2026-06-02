@@ -13,7 +13,6 @@ class AlpacaAccountAdapter(BaseAccountAdapter):
     def __init__(self) -> None:
         super().__init__(name="AlpacaAccountAdapter", rate_limit=100)
 
-
     async def get_positions(self) -> List[Position]:
         return []
 
@@ -23,7 +22,7 @@ class AlpacaAccountAdapter(BaseAccountAdapter):
             equity=Decimal("100000.00"),
             buying_power=Decimal("100000.00"),
             ts_event=datetime.now(timezone.utc),
-            currency="USD"
+            currency="USD",
         )
 
     async def get_orders(self) -> List[Order]:

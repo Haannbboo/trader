@@ -7,11 +7,13 @@ from contracts.schema import Order
 
 class RiskRejected(Exception):
     """Raised when an order fails risk evaluation checks."""
+
     pass
 
 
 class RiskContext(BaseModel):
     """Live snapshot the rules evaluate against (positions, notional, day P&L...)."""
+
     pass
 
 
@@ -24,7 +26,9 @@ class RuleResult(BaseModel):
 @runtime_checkable
 class RiskRule(Protocol):
     """One rule = one package/file; new limits scale via the registry pattern too."""
+
     name: str
+
     def evaluate(self, order: Order, ctx: RiskContext) -> RuleResult: ...
 
 

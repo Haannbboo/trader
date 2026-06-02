@@ -1,15 +1,8 @@
 import pytest
-import typing
 from plugins import registry
 from contracts import MarketSourcePort, NewsSourcePort, AccountSourcePort
 
 # Trigger imports to register plugins
-import adapters.market.ibkr
-import adapters.market.polygon
-import adapters.news.benzinga
-import adapters.news.rss
-import adapters.account.ibkr
-import adapters.account.alpaca
 
 
 @pytest.mark.parametrize("name", registry.names("market"))

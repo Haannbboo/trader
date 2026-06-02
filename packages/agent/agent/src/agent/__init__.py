@@ -1,8 +1,18 @@
 import asyncio
 from typing import Any, Dict
 from contracts import (
-    Side, OrderType, Order, OrderStatus, FeatureValue, Event,
-    EventType, Instrument, AssetClass, Position, Bus, Subscription
+    Side,
+    OrderType,
+    Order,
+    OrderStatus,
+    FeatureValue,
+    Event,
+    EventType,
+    Instrument,
+    AssetClass,
+    Position,
+    Bus,
+    Subscription,
 )
 from guardrail import Guardrail
 
@@ -15,7 +25,7 @@ class TraderAgentHarness:
         bus: Bus,
         tools: Any,
         guardrail: Guardrail,
-        strategy_config: Dict[str, Any]
+        strategy_config: Dict[str, Any],
     ) -> None:
         """Initialize Agent loop with bus, execution tools, guardrail, and strategies config."""
         self.bus = bus

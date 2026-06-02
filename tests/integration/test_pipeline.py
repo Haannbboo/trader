@@ -1,13 +1,11 @@
-import anyio
 import pytest
-from datetime import datetime, timezone
-from decimal import Decimal
 from bus import InProcessBus
 from market import MarketService
 from feature import FeatureService
 from feature.runtime import FeatureRuntime
 from contracts import (
-    Bar, Instrument, AssetClass, Event, EventType, FeatureValue, Timeframe, Subscription
+    Instrument,
+    AssetClass,
 )
 from features.technical.rsi import RSIProcessor
 from adapters.market.polygon import PolygonMarketAdapter
@@ -24,7 +22,9 @@ async def test_subscription_reuse() -> None:
 
     # Under the skeleton architecture, calls to unimplemented methods raise NotImplementedError
     with pytest.raises(NotImplementedError):
-        await service.get_quote(Instrument(symbol="AAPL", asset_class=AssetClass.EQUITY))
+        await service.get_quote(
+            Instrument(symbol="AAPL", asset_class=AssetClass.EQUITY)
+        )
 
     await bus.stop()
 
@@ -32,7 +32,6 @@ async def test_subscription_reuse() -> None:
 @pytest.mark.asyncio
 async def test_end_to_end_signal_generation() -> None:
     """Verifies that injecting bars into the bus triggers features and emits signals."""
-    import asyncio
 
     bus = InProcessBus()
     await bus.start()
@@ -41,7 +40,7 @@ async def test_end_to_end_signal_generation() -> None:
     feature_service = FeatureService(runtime=feature_runtime)
     rsi = RSIProcessor()
     rsi.initialize({"period": 5})  # Short period for test
-    
+
     # Registers processor in the runtime skeleton
     with pytest.raises(NotImplementedError):
         feature_runtime.add_processor(rsi)

@@ -3,8 +3,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import AsyncIterator
 from contracts import (
-    Instrument, Quote, Bar, Timeframe, Event,
-    MarketChannel, MarketSourcePort, Bus, MarketDataService
+    Instrument,
+    Quote,
+    Bar,
+    Timeframe,
+    Event,
+    MarketChannel,
+    MarketSourcePort,
+    Bus,
+    MarketDataService,
 )
 
 

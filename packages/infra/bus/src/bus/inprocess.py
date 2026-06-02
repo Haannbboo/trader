@@ -3,6 +3,7 @@ ta.bus.inprocess — Bus for single-process / single-machine. asyncio fan-out to
 in-memory per-subscriber queues. Implements the Bus protocol so RedisStreamsBus
 (durability + replay) can replace it later with ZERO caller changes.
 """
+
 from __future__ import annotations
 
 import anyio
@@ -21,7 +22,9 @@ class InProcessBus:
     def __init__(self, *, max_queue: int = 10_000) -> None:
         self.max_queue = max_queue
         # List of (subscription, send_stream)
-        self._subscribers: List[Tuple[Subscription, anyio.MemoryObjectSendStream[Event]]] = []
+        self._subscribers: List[
+            Tuple[Subscription, anyio.MemoryObjectSendStream[Event]]
+        ] = []
         self._running = False
 
     async def start(self) -> None:
@@ -53,7 +56,10 @@ class InProcessBus:
                     pass
 
     def subscribe(
-        self, subscription: Subscription, *, group: Optional[str] = None,
+        self,
+        subscription: Subscription,
+        *,
+        group: Optional[str] = None,
     ) -> AsyncIterator[Event]:
         """`group` is ignored here; the Redis impl uses it for consumer-group
         replay. Keep it so callers don't change when you swap implementations."""
@@ -62,7 +68,6 @@ class InProcessBus:
         self._subscribers.append((subscription, send_stream))
         logger.info(f"Subscribed queue to stream: {subscription}")
         return receive_stream
-
 
     async def close(self) -> None:
         self._running = False
