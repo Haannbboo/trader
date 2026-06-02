@@ -32,8 +32,8 @@ from typing import TYPE_CHECKING, AsyncIterator
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from loguru import logger
-from pydantic import BaseModel, Field
 
+from contracts.gateway import DispatchRequest  # pyrefly: ignore [missing-import]
 from contracts.ports import Subscription  # pyrefly: ignore [missing-import]
 from contracts.schema import (
     AssetClass,
@@ -97,15 +97,6 @@ def _route_uvicorn_logging_to_loguru() -> None:
         lg.handlers = [handler]
         lg.propagate = False
     _uvicorn_logging_routed = True
-
-
-class DispatchRequest(BaseModel):
-    """Wire envelope for POST /dispatch. `args` is a free-form dict — the tool
-    layer validates per-tool inside dispatch(); this model only guarantees the
-    outer JSON shape and lets FastAPI return 422 on a malformed body."""
-
-    name: str
-    args: dict = Field(default_factory=dict)
 
 
 class AgentGateway:

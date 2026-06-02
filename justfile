@@ -41,3 +41,11 @@ backtest:
 # Run CLI
 cli *args:
     uv run python apps/cli/main.py {{args}}
+
+# Regenerate contracts/*.schema.json from Pydantic models in packages/contracts
+gen-contracts:
+    uv run python scripts/generate_contracts.py
+
+# CI: fail if contracts/*.schema.json would change (catches Pydantic drift)
+gen-contracts-check:
+    uv run python scripts/generate_contracts.py --check

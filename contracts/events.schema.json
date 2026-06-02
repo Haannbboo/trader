@@ -1,0 +1,71 @@
+{
+  "$defs": {
+    "EventType": {
+      "enum": [
+        "quote",
+        "bar",
+        "news",
+        "order_update",
+        "fill",
+        "position_update",
+        "balance_update",
+        "feature"
+      ],
+      "title": "EventType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Envelope that flows over `GET /stream` as one SSE `data:` line per\noccurrence. Generic over payload in Python (`Event[Quote]`, `Event[Fill]`,\n...) but flattened here because JSON Schema has no generics and the TS\nclient treats the payload as `Record<string, unknown>` \u2014 it discriminates\non `type` and parses the payload lazily.",
+  "properties": {
+    "event_id": {
+      "format": "uuid",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    },
+    "seq": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Seq"
+    },
+    "source": {
+      "title": "Source",
+      "type": "string"
+    },
+    "ts_event": {
+      "format": "date-time",
+      "title": "Ts Event",
+      "type": "string"
+    },
+    "ts_ingest": {
+      "format": "date-time",
+      "title": "Ts Ingest",
+      "type": "string"
+    },
+    "type": {
+      "$ref": "#/$defs/EventType"
+    }
+  },
+  "required": [
+    "type",
+    "source",
+    "payload",
+    "ts_event",
+    "ts_ingest",
+    "event_id"
+  ],
+  "title": "BusEvent",
+  "type": "object"
+}

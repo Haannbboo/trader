@@ -1,0 +1,29 @@
+{
+  "items": {
+    "additionalProperties": false,
+    "description": "One tool the agent can invoke. Returned by `GET /tools` as a JSON array.\n\n`parameters` is a free-form JSON Schema object describing the tool's args.\nThe TS client converts it to a TypeBox schema at runtime for the\n`AgentTool.parameters` field; Python's `ToolLayer.dispatch()` validates\nthe same args dict against this schema via simple structural checks.",
+    "properties": {
+      "description": {
+        "title": "Description",
+        "type": "string"
+      },
+      "name": {
+        "title": "Name",
+        "type": "string"
+      },
+      "parameters": {
+        "additionalProperties": true,
+        "title": "Parameters",
+        "type": "object"
+      }
+    },
+    "required": [
+      "name",
+      "description"
+    ],
+    "title": "ToolSpec",
+    "type": "object"
+  },
+  "title": "ToolCatalog",
+  "type": "array"
+}
