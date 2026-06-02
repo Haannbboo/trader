@@ -23,6 +23,7 @@ from account import AccountService
 from apps.live.pi_gateway import AgentGateway
 from apps.smoke.mock_adapter import MockAccountAdapter
 from bus import InProcessBus
+from contracts.gateway import DispatchRequest, ToolSpec
 from contracts.schema import Order
 from guardrail import Guardrail, RiskRejected, RiskRule, RuleResult
 from tools import ToolLayer
@@ -165,3 +166,48 @@ def test_riskrejected_is_importable_and_carries_expected_fields() -> None:
     assert e.rule == "some_rule"
     with pytest.raises(RiskRejected):
         raise e
+
+
+# --- contract guard tests ---------------------------------------------------
+# These tests are the only enforcement that the gateway's wire shape stays in
+# sync with the Pydantic models in `contracts.gateway`. If a Python dev adds
+# a required field to `ToolSpec` without updating the gateway (or the gateway
+# starts returning a field that's not in the model), these tests fail and
+# flag the drift. The TS side (packages/tool-client/src/types.ts) mirrors
+# these shapes by hand and should be updated in the same commit.
+#
+# See docs/adr/0002-contracts-strategy.md for why we don't generate the TS
+# types from these models.
+def test_get_tools_response_conforms_to_tool_spec_model() -> None:
+    """Every item in the /tools response MUST validate against `ToolSpec`.
+    Catches two drift directions:
+      1. A new REQUIRED field is added to ToolSpec but the gateway doesn't
+         return it (validation fails on the missing field).
+      2. The gateway starts returning a field that's not in ToolSpec
+         (ToolSpec has extra='forbid', so validation fails on the unknown
+         field).
+    Either failure is a signal to either update ToolSpec (SOT change) or
+    update the gateway + the TS hand-written types in lockstep."""
+    client = TestClient(_build_gateway().app())
+    r = client.get("/tools")
+    assert r.status_code == 200, r.text
+    items = r.json()
+    assert items, "catalog should not be empty for a gateway with the account stack"
+
+    for item in items:
+        # `model_validate` raises ValidationError on any shape mismatch.
+        # We don't assert on the parsed value's contents here — that's the
+        # job of the other tests. This test is purely a shape conformance
+        # check between the wire and the SOT model.
+        ToolSpec.model_validate(item)
+
+
+def test_dispatch_request_body_conforms_to_dispatch_request_model() -> None:
+    """A canonical /dispatch request body MUST validate against `DispatchRequest`
+    (the model FastAPI uses at the route boundary). If the request shape
+    changes here, the corresponding TS type in packages/tool-client/src/types.ts
+    needs to change too — this test is the canary that fires first."""
+    body = {"name": "get_balance", "args": {}}
+    parsed = DispatchRequest.model_validate(body)
+    assert parsed.name == "get_balance"
+    assert parsed.args == {}
