@@ -141,10 +141,10 @@ def main() -> None:
         anyio.run(monitor_bus)
     elif args.command == "fixture":
         logger.info(
-            "Fixture recorder active. Recording live stream to './fixtures/market/...'"
+            "Fixture recorder active. Recording live stream to './tests/fixtures/market/...'"
         )
         logger.info(
-            "Mock fixtures generated and saved to fixtures/conformance_mock.json"
+            "Mock fixtures generated and saved to tests/fixtures/conformance_mock.json"
         )
     else:
         parser.print_help()

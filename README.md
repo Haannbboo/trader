@@ -9,7 +9,6 @@ Trader is a highly modular, decoupled, and extensible agentic trading system bui
 ├── justfile · uv.lock · .env.example
 ├── docs/adr/                   # Architecture Decision Records (frozen, ingestion, protocols, registry)
 ├── config/{live,backtest}.yaml # Dynamic config for live/paper vs backtest runtimes
-├── fixtures/                   # Tick and news event recordings for conformance checks
 │
 ├── packages/                   # Core business logic packages
 │   ├── contracts/           # Protocols/Ports and immutable event schemas (Pydantic)

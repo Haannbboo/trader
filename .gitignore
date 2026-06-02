@@ -149,5 +149,5 @@ cython_debug/
 data/
 logs/
 *.jsonl
-!fixtures/**/*.json
-!fixtures/**/*.jsonl
+!tests/fixtures/**/*.json
+!tests/fixtures/**/*.jsonl
