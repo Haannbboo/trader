@@ -12,6 +12,7 @@
 
 export { GatewayClient, type ClientOptions } from "./client.js";
 export { BadRequestError, RiskRejectedError } from "./errors.js";
+export { type CreateToolsOptions, createTools } from "./tools.js";
 export type { BusEvent, EventType, SubscribeOptions, ToolSpec } from "./types.js";
 
 /** Package version, kept in lockstep with `package.json`. */
