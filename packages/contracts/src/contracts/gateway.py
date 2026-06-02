@@ -58,4 +58,3 @@ class DispatchRequest(BaseModel):
 # payload to `dict[str, Any]` is what keeps the wire shape language-neutral
 # without baking in any concrete Quote/Fill/NewsItem shape.
 BusEvent = Event[dict[str, Any]]  # type: ignore[valid-type]
-
