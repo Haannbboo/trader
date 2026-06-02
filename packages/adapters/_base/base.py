@@ -8,6 +8,41 @@ reason all three domains can share it. Depends on contracts + transport.
 Template-method split used throughout this file:
   - public methods (start/stop/health) own the COMMON flow;
   - `_`-prefixed hooks are the source-specific bits a concrete adapter fills in.
+
+----------------------------------------------------------------------------
+HOW SECRETS / PARAMS REACH AN ADAPTER  (read this before touching __init__)
+----------------------------------------------------------------------------
+An adapter NEVER reads os.environ. Credentials arrive as constructor kwargs,
+already resolved. The full chain:
+
+  root .env            ALPACA_API_KEY=...   ALPACA_SECRET=...      (gitignored)
+  config/*.yaml        account.sources: [{name: alpaca, paper: true}]
+        |
+        v
+  ta.config.EnvSecretProvider.for_source("account", "alpaca")
+        |   convention: strip the "<SOURCENAME_UPPER>_" prefix, lowercase ->
+        |   ALPACA_API_KEY -> "api_key",  ALPACA_SECRET -> "secret"
+        v
+  AppConfig.source_params(...)   merges yaml (non-secret) + secrets ->
+        {"api_key": "...", "secret": "...", "paper": True}
+        |
+        v
+  registry.build_sources("account", [SourceConfig(name="alpaca", params=THAT)])
+        |   does:  AlpacaAccountAdapter(**params)   # the dict is SPLATTED to kwargs
+        v
+  AlpacaAccountAdapter.__init__(self, api_key, secret, paper=False, **params)
+
+So `**params` here is "whatever keys config produced for this source". WHICH
+keys a source needs is NOT decided here and NOT decided by config — it's decided
+by the CONCRETE adapter's __init__ signature. That's deliberate: auth differs
+per platform (key+secret / bare key / JWT / OAuth), so each adapter declares its
+own required kwargs and validation happens for free at construction:
+a missing/extra key raises TypeError at startup, not on the first API call.
+
+BaseAdapter therefore stays AUTH-AGNOSTIC: it only catches the leftover `**params`
+and does the platform-independent setup. It must never assume "there is an
+api_key". The same way the `_normalize_*` hooks keep it agnostic about data
+shape, `**params` keeps it agnostic about credential shape.
 """
 
 from __future__ import annotations
@@ -19,16 +54,23 @@ from contracts.errors import TraderError
 
 
 class BaseAdapter:
-    """Base class for adapters, incorporating shared lifecycle, reconnect, and rate-limiting.
-
-    This class holds only what is independent of what the data is: lifecycle,
-    rate limiting, and error wrapping.
-    """
+    """Base class for shared lifecycle, error wrapping, and rate limiting."""
 
     name: str
 
     def __init__(self, name: str = "", rate_limit: int = 10, **params) -> None:
-        """Stash params, and initialize the RateLimiter and state variables."""
+        """Platform-INDEPENDENT setup only.
+
+        A concrete adapter overrides __init__ to declare the credentials ITS
+        platform needs (see the secret-flow note in the module docstring), then
+        calls super().__init__(**params) to pass the leftover non-credential
+        params (endpoints, rate-limit overrides, ...) up here.
+
+        This base impl does NOT inspect params for any specific credential key.
+        It stashes them and builds the RateLimiter from common setup arguments.
+        Do NOT add `api_key`/`token`/etc. to THIS signature — that would bake one
+        platform's auth scheme into every source.
+        """
         self.name = name
         self.connected = False
         self._started = False
@@ -42,12 +84,16 @@ class BaseAdapter:
 
     @property
     def capabilities(self) -> SourceCapabilities:
-        """MUST be provided by the concrete adapter."""
+        """MUST be provided by the concrete adapter — the service routes by this,
+        never by name. Not domain-specific, so it lives at this level.
+        """
         return self._capabilities
 
     @property
     def limiter(self) -> RateLimiter:
-        """Shared token bucket; adapters await self.limiter.acquire() before each upstream call."""
+        """Shared token bucket; adapters await self.limiter.acquire() before each
+        upstream call.
+        """
         return self.rate_limiter
 
     # --- lifecycle: common flow here, source-specific connect in the hooks ---
@@ -96,7 +142,9 @@ class BaseAdapter:
             return False
 
     def _wrap_error(self, exc: Exception) -> Exception:
-        """Common: translate a raw upstream exception into a typed contracts.errors.*."""
+        """Common: translate a raw upstream exception into a typed
+        contracts.errors.* so callers handle one error vocabulary.
+        """
         if isinstance(exc, TraderError):
             return exc
         return TraderError(str(exc))
