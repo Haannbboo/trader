@@ -1,0 +1,49 @@
+# Trader Live Configuration
+
+# Core system mode: live, paper, backtest
+mode: live
+
+# Enabled data adapters and accounts
+adapters:
+  market:
+    - name: polygon
+      symbols: ["AAPL", "MSFT", "NVDA", "BTC-USD"]
+      timeframe: "1m"
+    - name: alpaca
+      symbols: ["SPY", "QQQ"]
+      timeframe: "1m"
+  news:
+    - name: benzinga
+      categories: ["mergers", "earnings"]
+    - name: rss
+      urls:
+        - "https://feeds.finance.yahoo.com/rss/2.0/headline?s=AAPL"
+  account:
+    - name: alpaca
+      paper: true
+
+# Active features to compute
+features:
+  technical:
+    - name: rsi
+      period: 14
+    - name: returns
+      lags: [1, 5]
+  crosssectional:
+    - name: rank
+      metric: returns_1
+  sentiment:
+    - name: sentiment
+      model: "finiteautomata/bertweet-base-sentiment-analysis"
+
+# Risk controls and limits
+guardrails:
+  max_drawdown_percent: 5.0
+  max_position_size_dollars: 50000.0
+  max_order_size_dollars: 10000.0
+  kill_switch_enabled: true
+
+# Agent settings
+agent:
+  strategy: trend_following_agent
+  react_loop_interval_seconds: 5.0

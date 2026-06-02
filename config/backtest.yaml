@@ -1,0 +1,42 @@
+# Trader Backtest Configuration
+
+# Core system mode: backtest
+mode: backtest
+
+# Backtesting simulation dates
+backtest:
+  start_date: "2026-01-01"
+  end_date: "2026-05-31"
+  initial_capital: 100000.0
+  slippage_pct: 0.05
+  commission_dollars: 1.00
+
+# Enabled data adapters and accounts (mocked/replayed in backtest)
+adapters:
+  market:
+    - name: polygon
+      symbols: ["AAPL", "MSFT"]
+      timeframe: "1m"
+  account:
+    - name: mock_account
+      initial_capital: 100000.0
+
+# Active features to compute
+features:
+  technical:
+    - name: rsi
+      period: 14
+    - name: returns
+      lags: [1]
+
+# Risk controls and limits
+guardrails:
+  max_drawdown_percent: 10.0
+  max_position_size_dollars: 25000.0
+  max_order_size_dollars: 5000.0
+  kill_switch_enabled: true
+
+# Agent settings
+agent:
+  strategy: trend_following_agent
+  react_loop_interval_seconds: 0.0  # Process events as fast as possible in backtests

@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "trader"
+version = "0.1.0"
+description = "Trader: A modular, pluggable agentic trading system."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "pydantic>=2.5.0",
+    "pyyaml>=6.0.1",
+    "loguru>=0.7.2",
+    "prometheus-client>=0.19.0",
+    "anyio>=4.2.0",
+]
+
+[project.optional-dependencies]
+ibkr = ["ib-insync>=0.9.70"]
+polygon = ["polygon-api-client>=1.0.0"]
+alpaca = ["alpaca-py>=0.20.0"]
+databento = ["databento>=0.12.0"]
+benzinga = []
+newsapi = []
+sentiment = ["torch>=2.0.0", "transformers>=4.30.0"]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.1.9",
+    "mypy>=1.8.0",
+    "black>=23.12.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "packages/contracts/src/ta",
+    "packages/plugins/src/ta",
+    "packages/transport/src/ta",
+    "packages/bus/src/ta",
+    "packages/config/src/ta",
+    "packages/observability/src/ta",
+    "packages/persistence/src/ta",
+    "packages/market/src/ta",
+    "packages/news/src/ta",
+    "packages/account/src/ta",
+    "packages/feature/src/ta",
+    "packages/guardrail/src/ta",
+    "packages/tools/src/ta",
+    "packages/agent/src/ta",
+    "packages/strategies/src/ta",
+    "packages/adapters",
+    "packages/features"
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --tb=short"
+testpaths = ["tests", "packages"]
+asyncio_mode = "auto"
