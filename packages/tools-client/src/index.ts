@@ -7,12 +7,12 @@
  * the consumer (an external Pi Agent process) drives the loop, and this
  * package just hands it the tool surface.
  *
- * This file is the public entry point. Step 2 ships the skeleton; steps 3-6
- * land the actual HTTP client, schema bridge, tools adapter, and stream
- * adapter. Re-exports are added here as each module lands.
- *
  * @packageDocumentation
  */
+
+export { GatewayClient, type ClientOptions } from "./client.js";
+export { BadRequestError, RiskRejectedError } from "./errors.js";
+export type { BusEvent, EventType, SubscribeOptions, ToolSpec } from "./types.js";
 
 /** Package version, kept in lockstep with `package.json`. */
 export const VERSION = "0.1.0" as const;
