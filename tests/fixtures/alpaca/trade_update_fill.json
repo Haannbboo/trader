@@ -1,0 +1,28 @@
+{
+  "event": "fill",
+  "execution_id": "fixture_execution_id",
+  "order": {
+    "asset_class": "us_equity",
+    "asset_id": "fixture_asset_id",
+    "client_order_id": "9c3e5024-8100-4d21-a4bd-22ba5e389809",
+    "extended_hours": false,
+    "filled_avg_price": "305.59",
+    "filled_qty": "1",
+    "id": "fixture_id",
+    "limit_price": null,
+    "order_class": "simple",
+    "qty": "1",
+    "side": "buy",
+    "status": "filled",
+    "stop_price": null,
+    "submitted_at": "2026-06-01T17:22:27.674161Z",
+    "symbol": "AAPL",
+    "time_in_force": "day",
+    "type": "market",
+    "updated_at": "2026-06-01T17:22:28.346835Z"
+  },
+  "position_qty": 1,
+  "price": "305.59",
+  "qty": "1",
+  "timestamp": "2026-06-01T17:22:28.344802Z"
+}

@@ -1,0 +1,25 @@
+[
+  {
+    "asset_class": "us_equity",
+    "asset_id": "fixture_asset_id",
+    "asset_marginable": true,
+    "avg_entry_price": "305.59",
+    "avg_entry_swap_rate": null,
+    "change_today": "-0.00356",
+    "cost_basis": "305.59",
+    "current_price": "305.22",
+    "exchange": "NASDAQ",
+    "lastday_price": "306.31",
+    "market_value": "305.22",
+    "qty": "1",
+    "qty_available": "1",
+    "side": "long",
+    "swap_rate": null,
+    "symbol": "AAPL",
+    "unrealized_intraday_pl": "-1.09",
+    "unrealized_intraday_plpc": "-0.00356",
+    "unrealized_pl": "-0.37",
+    "unrealized_plpc": "-0.00121",
+    "usd": null
+  }
+]

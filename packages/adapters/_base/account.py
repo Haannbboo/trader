@@ -28,29 +28,45 @@ from adapters._base.base import BaseAdapter
 class BaseAccountAdapter(BaseAdapter, AccountSourcePort):
     """Base class for account and execution adapters."""
 
+    def __init__(self, name: str = "", rate_limit: int = 10, **params) -> None:
+        super().__init__(name=name, rate_limit=rate_limit, **params)
+        self._submitted_by_client_order_id: dict[str, Order] = {}
+
     # --- reads: common flow -> normalize hook ---
     async def get_positions(self) -> list[Position]:
         """Common: limiter -> _fetch_positions_raw -> map _normalize_position."""
-        raise NotImplementedError()
+        await self.limiter.acquire()
+        return [
+            self._normalize_position(raw) for raw in await self._fetch_positions_raw()
+        ]
 
     async def get_balance(self) -> Balance:
         """Common: limiter -> _fetch_balance_raw -> _normalize_balance."""
-        raise NotImplementedError()
+        await self.limiter.acquire()
+        return self._normalize_balance(await self._fetch_balance_raw())
 
     async def get_orders(self) -> list[Order]:
         """Common: limiter -> _fetch_orders_raw -> map _normalize_order."""
-        raise NotImplementedError()
+        await self.limiter.acquire()
+        return [self._normalize_order(raw) for raw in await self._fetch_orders_raw()]
 
     # --- writes: idempotency lives here, once, for all brokers ---
     async def place_order(self, order: Order) -> Order:
         """Common: ensure client_order_id (idempotency key); skip/replay if we've
         already sent this id; else _submit_raw -> _normalize_order. Concrete
         brokers never reimplement idempotency."""
-        raise NotImplementedError()
+        if order.client_order_id in self._submitted_by_client_order_id:
+            return self._submitted_by_client_order_id[order.client_order_id]
+
+        await self.limiter.acquire()
+        submitted = self._normalize_order(await self._submit_raw(order))
+        self._submitted_by_client_order_id[order.client_order_id] = submitted
+        return submitted
 
     async def cancel_order(self, broker_order_id: str) -> None:
         """Common: limiter -> _cancel_raw."""
-        raise NotImplementedError()
+        await self.limiter.acquire()
+        await self._cancel_raw(broker_order_id)
 
     # --- stream: fills + order/position updates as a uniform Event stream ---
     async def subscribe(self) -> AsyncIterator[Event]:

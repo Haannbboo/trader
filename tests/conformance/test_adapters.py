@@ -1,8 +1,19 @@
+from importlib import import_module
+
 import pytest
 from plugins import registry
-from contracts import MarketSourcePort, NewsSourcePort, AccountSourcePort
+from contracts import AccountSourcePort, MarketSourcePort, NewsSourcePort
 
 # Trigger imports to register plugins
+for module_name in (
+    "adapters.market.ibkr",
+    "adapters.market.polygon",
+    "adapters.news.benzinga",
+    "adapters.news.rss",
+    "adapters.account.ibkr",
+    "adapters.account.alpaca",
+):
+    import_module(module_name)
 
 
 @pytest.mark.parametrize("name", registry.names("market"))

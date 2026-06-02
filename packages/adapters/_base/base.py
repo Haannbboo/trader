@@ -15,22 +15,22 @@ HOW SECRETS / PARAMS REACH AN ADAPTER  (read this before touching __init__)
 An adapter NEVER reads os.environ. Credentials arrive as constructor kwargs,
 already resolved. The full chain:
 
-  root .env            ALPACA_API_KEY=...   ALPACA_SECRET=...      (gitignored)
+  root .env            ALPACA_API_KEY=...   ALPACA_API_SECRET=...  (gitignored)
   config/*.yaml        account.sources: [{name: alpaca, paper: true}]
         |
         v
   ta.config.EnvSecretProvider.for_source("account", "alpaca")
         |   convention: strip the "<SOURCENAME_UPPER>_" prefix, lowercase ->
-        |   ALPACA_API_KEY -> "api_key",  ALPACA_SECRET -> "secret"
+        |   ALPACA_API_KEY -> "api_key",  ALPACA_API_SECRET -> "api_secret"
         v
   AppConfig.source_params(...)   merges yaml (non-secret) + secrets ->
-        {"api_key": "...", "secret": "...", "paper": True}
+        {"api_key": "...", "api_secret": "...", "paper": True}
         |
         v
   registry.build_sources("account", [SourceConfig(name="alpaca", params=THAT)])
         |   does:  AlpacaAccountAdapter(**params)   # the dict is SPLATTED to kwargs
         v
-  AlpacaAccountAdapter.__init__(self, api_key, secret, paper=False, **params)
+  AlpacaAccountAdapter.__init__(self, api_key, api_secret, paper=False, **params)
 
 So `**params` here is "whatever keys config produced for this source". WHICH
 keys a source needs is NOT decided here and NOT decided by config — it's decided

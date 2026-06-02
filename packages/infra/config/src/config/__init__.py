@@ -7,11 +7,11 @@ hands each adapter a plain `params` dict through the registry. Swap .env for AWS
 Secrets Manager later by changing ONLY the SecretProvider here — no adapter moves.
 
 Path of an alpaca key:
-    .env: ALPACA_API_KEY / ALPACA_SECRET
+    .env: ALPACA_API_KEY / ALPACA_API_SECRET
         -> EnvSecretProvider (prefix "ALPACA_" -> source "alpaca")
         -> AppConfig.source_params("account", "alpaca")  (merged with yaml)
         -> registry.build_sources("account", [SourceConfig(name="alpaca", params=...)])
-        -> AlpacaAccountAdapter(**params)   # api_key arrives as a kwarg
+        -> AlpacaAccountAdapter(**params)   # api_key/api_secret arrive as kwargs
 
 Depends only on contracts + plugins (for SourceConfig). Pydantic-settings does
 the .env parsing in the real impl.
@@ -42,7 +42,7 @@ class SecretProvider(Protocol):
 
     def for_source(self, domain: str, name: str) -> dict[str, Any]:
         """All secrets belonging to one source, stripped of their prefix.
-        e.g. ('account','alpaca') -> {'api_key': ..., 'secret_key': ...}
+        e.g. ('account','alpaca') -> {'api_key': ..., 'api_secret': ...}
         """
         ...
 
