@@ -2,17 +2,20 @@
 gateway — Pydantic models for the AgentGateway HTTP seam.
 
 These are the data shapes that cross the HTTP boundary exposed by
-apps/live/pi_gateway.py. They live here (in contracts/) so the contract
-generator in scripts/generate_contracts.py can emit JSON Schemas from a
-single source of truth that both Python and TypeScript import.
+apps/live/pi_gateway.py. They are the single source of truth for the
+cross-language wire contract; the TypeScript side (`packages/tool-client/`)
+hand-writes matching types in `src/types.ts`, and a Python guard test
+asserts the real gateway responses validate against these models so
+drift in either direction gets caught.
 
 `ToolSpec` is the wire format for one entry in `GET /tools`. `DispatchRequest`
 is the request body for `POST /dispatch`. `BusEvent` is the SSE data line on
 `GET /stream` and is intentionally an ALIAS for the generic `Event[dict]`
 defined in contracts/schema.py — it is NOT a second definition that could
-drift. The payload is typed as `dict[str, Any]` because JSON Schema has no
-generics and the TS client treats the payload as `Record<string, unknown>`;
-it discriminates on `type` and parses the payload lazily.
+drift.
+
+See docs/adr/0002-contracts-strategy.md for the rationale on the
+Python-SOT + TS-mirror approach.
 """
 
 from __future__ import annotations
@@ -52,7 +55,7 @@ class DispatchRequest(BaseModel):
 # `BusEvent` is the SSE wire shape. It is a parameterized generic over the
 # real `Event` envelope from contracts.schema — the same fields, the same
 # `EventType` enum, the same frozen + extra="forbid" rules. Binding the
-# payload to `dict[str, Any]` is what lets the JSON Schema emitter produce
-# a clean `{"type": "object", "additionalProperties": true}` for `payload`
+# payload to `dict[str, Any]` is what keeps the wire shape language-neutral
 # without baking in any concrete Quote/Fill/NewsItem shape.
 BusEvent = Event[dict[str, Any]]  # type: ignore[valid-type]
+
