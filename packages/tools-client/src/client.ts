@@ -14,6 +14,7 @@
  */
 
 import { BadRequestError, RiskRejectedError } from "./errors.js";
+import { parseSseStream } from "./stream.js";
 import type { BusEvent, SubscribeOptions, ToolSpec } from "./types.js";
 
 export interface ClientOptions {
@@ -76,9 +77,8 @@ export class GatewayClient {
   /** GET /stream — async iterator of bus events as SSE `data:` lines.
    *
    *  Heartbeat comment lines (`: keepalive`) are skipped. The connection is
-   *  cancelled when the consumer breaks out of the loop (the `finally` block
-   *  cancels the underlying reader), which propagates to the server's
-   *  generator cleanup. */
+   *  cancelled when the consumer breaks out of the loop, which the
+   *  `parseSseStream` helper's `finally` block propagates to the server. */
   async *subscribe(opts: SubscribeOptions = {}): AsyncIterableIterator<BusEvent> {
     const params = new URLSearchParams();
     if (opts.events?.length) params.set("events", opts.events.join(","));
@@ -98,45 +98,8 @@ export class GatewayClient {
       throw new Error("subscribe: response has no body");
     }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        // Drain complete SSE events (each terminated by a blank line).
-        let sepIdx = buffer.indexOf("\n\n");
-        while (sepIdx !== -1) {
-          const event = buffer.slice(0, sepIdx);
-          buffer = buffer.slice(sepIdx + 2);
-          const data = parseSseData(event);
-          if (data !== null) {
-            yield JSON.parse(data) as BusEvent;
-          }
-          sepIdx = buffer.indexOf("\n\n");
-        }
-      }
-    } finally {
-      try {
-        await reader.cancel();
-      } catch {
-        // Stream already closed by the server; cancellation is a no-op.
-      }
+    for await (const data of parseSseStream(res.body)) {
+      yield JSON.parse(data) as BusEvent;
     }
   }
-}
-
-/** Extract the first `data:` line from one SSE event block, or null if the
- *  block contains only comments (heartbeats). Per the SSE spec, `data: ` and
- *  `data:` are both valid; we accept both forms. */
-function parseSseData(rawBlock: string): string | null {
-  for (const line of rawBlock.split("\n")) {
-    if (line.startsWith("data: ")) return line.slice("data: ".length);
-    if (line.startsWith("data:")) return line.slice("data:".length);
-  }
-  return null;
 }
