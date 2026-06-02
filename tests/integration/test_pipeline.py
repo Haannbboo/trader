@@ -37,7 +37,7 @@ async def test_end_to_end_signal_generation() -> None:
     await bus.start()
 
     feature_runtime = FeatureRuntime(bus=bus)
-    feature_service = FeatureService(runtime=feature_runtime)
+    _feature_service = FeatureService(runtime=feature_runtime)
     rsi = RSIProcessor()
     rsi.initialize({"period": 5})  # Short period for test
 

@@ -1,109 +1,142 @@
+# ruff: noqa: E402
+"""
+apps/smoke/main.py — the thin vertical slice, runnable.
+
+Proves the contract end-to-end: build a bus, inject ONE account adapter into the
+minimal AccountService, start the event pump, then (a) call tools synchronously
+like an agent would and (b) watch fills stream off the bus.
+
+Run:
+    python -m apps.smoke.main mock        # no network, fake data
+    python -m apps.smoke.main alpaca      # real Alpaca paper account
+
+The ONLY difference between the two modes is which adapter is built. Everything
+downstream (service, bus, tools) is identical — that substitutability is the
+thing this slice exists to demonstrate.
+"""
+
+from __future__ import annotations
+
 import sys
+import uuid
 from pathlib import Path
 
 # Path injection for local packages and namespace packages
 root_dir = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(root_dir))
 sys.path.insert(0, str(root_dir / "packages"))
 for p in (root_dir / "packages").glob("**/src"):
     sys.path.insert(0, str(p))
 
+import asyncio
 
-import anyio
-from loguru import logger
-
-
-from observability import setup_logging
-from bus import InProcessBus
-from plugins import registry
-from market import MarketService
-from news import NewsService
-from account import AccountService
-from feature import FeatureService
-from feature.runtime import FeatureRuntime
-from guardrail import Guardrail
-from tools import ToolLayer
-from agent import TraderAgentHarness
-
-# Make sure all adapters and features are imported so they register themselves!
+from apps.smoke.mock_adapter import MockAccountAdapter
+from bus import InProcessBus  # pyrefly: ignore [missing-import]
+from contracts import AccountSourcePort
+from account import AccountService  # pyrefly: ignore [missing-import]
+from tools import ToolLayer  # pyrefly: ignore [missing-import]
+from guardrail import Guardrail  # pyrefly: ignore [missing-import]
 
 
-async def main() -> None:
-    # 1. Setup logs
-    setup_logging(level="INFO")
-    logger.info("=== Starting Trader Smoke Test (Vertical Slice) ===")
+def build_adapter(mode: str) -> AccountSourcePort:
+    """The one switch point. mock = offline; alpaca = real paper account."""
+    if mode == "mock":
+        return MockAccountAdapter(n_fills=3, interval_s=0.3)
+    if mode == "alpaca":
+        # Real path: config resolves the secret and splats it into the ctor,
+        # exactly as registry.build_sources would in apps/live.
+        from config import AppConfig
+        from adapters.account.alpaca import AlpacaAccountAdapter  # your real adapter
 
-    # 2. Setup Bus
+        cfg = AppConfig.load("config/smoke.yaml")
+        params = cfg.source_params("account", "alpaca")
+        return AlpacaAccountAdapter(**params)
+    raise SystemExit(f"unknown mode {mode!r}; use 'mock' or 'alpaca'")
+
+
+async def bus_watcher(service: AccountService, stop: asyncio.Event) -> None:
+    """Stand-in for a streaming consumer (an agent / a feature worker): print
+    every account event that traverses the bus until told to stop."""
+    async for ev in service.subscribe():
+        print(
+            f"  [bus] {ev.type.value:14s} src={ev.source:6s} "
+            f"payload={type(ev.payload).__name__}"
+        )
+        if stop.is_set():
+            break
+
+
+async def run(mode: str) -> None:
+    print(f"=== smoke slice: mode={mode} ===")
     bus = InProcessBus()
+    adapter = build_adapter(mode)
+    guardrail = Guardrail([])
+    service = AccountService(sources=[adapter], bus=bus, guardrail=guardrail)
+    tools = ToolLayer(account=service)
+
     await bus.start()
+    await service.start()
+    print("health:", await adapter.health())
 
-    # 3. Instantiate dynamic adapters from plugin registry
-    logger.info("Instantiating adapters from registry...")
-    polygon_market = registry.get("market", "polygon")()
-    benzinga_news = registry.get("news", "benzinga")()
-    alpaca_account = registry.get("account", "alpaca")()
+    stop = asyncio.Event()
+    watcher = asyncio.create_task(bus_watcher(service, stop))
 
-    # 4. Initialize guardrails and services
-    guardrail = Guardrail(rules=[])
+    # (a) agent-style synchronous tool calls
+    print("\n-- tool: get_balance --")
+    print(" ", await tools.dispatch("get_balance", {}))
+    print("-- tool: get_positions --")
+    print(" ", await tools.dispatch("get_positions", {}))
 
-    market_service = MarketService(sources=[polygon_market], bus=bus)
-    news_service = NewsService(sources=[benzinga_news], bus=bus)
-    account_service = AccountService(
-        sources=[alpaca_account], bus=bus, guardrail=guardrail
+    print("-- tool: place_order (BUY 1 AAPL) --")
+    order_res = await tools.dispatch(
+        "place_order",
+        {
+            "client_order_id": f"client-smoke-{uuid.uuid4().hex[:8]}",
+            "symbol": "AAPL",
+            "side": "buy",
+            "quantity": 1,
+        },
     )
+    print(" ", order_res)
 
-    # Initialize feature runtime and service facade
-    feature_runtime = FeatureRuntime(bus=bus)
-    feature_service = FeatureService(runtime=feature_runtime)
+    print("-- tool: cancel_order --")
+    broker_order_id = order_res.get("broker_order_id")
+    if broker_order_id:
+        print(
+            " ",
+            await tools.dispatch(
+                "cancel_order",
+                {"broker_order_id": broker_order_id},
+            ),
+        )
 
-    rsi_processor = registry.get("feature", "rsi")()
-    sentiment_processor = registry.get("feature", "sentiment")()
+    # (b) let the streamed fills flow across the bus for a moment
+    print("\n-- streaming account events off the bus --")
+    await asyncio.sleep(1.5)
+    stop.set()
+    watcher.cancel()
 
-    # Initialize processors with configs
-    rsi_processor.initialize({"period": 14})
-    sentiment_processor.initialize({"model": "bert-sentiment-mock"})
+    await service.stop()
+    await bus.close()
+    print("\n=== done ===")
 
-    # feature_runtime.add_processor(rsi_processor)
-    # feature_runtime.add_processor(sentiment_processor)
 
-    # 5. Initialize agent loop
-    tools = ToolLayer(
-        market=market_service,
-        news=news_service,
-        account=account_service,
-        features=feature_service,
-    )
-    agent = TraderAgentHarness(
-        bus=bus,
-        tools=tools,
-        guardrail=guardrail,
-        strategy_config={"type": "trend_following"},
-    )
-
-    # 6. Start all runtimes
-    await market_service.start()
-    await news_service.start()
-    await account_service.start()
-    await feature_runtime.start()
-    await agent.start()
-
-    # 7. Subscribe agent tools to ticker streams
-    logger.info("Wired agent tools to subscribe to AAPL...")
-    # Under the new ToolLayer, subscriptions are defined via stream_specs()
-    tools.stream_specs()
-
-    # 8. Let the simulation run for a few seconds to process ticks and news
-    logger.info("Running simulation for 8 seconds to process data stream...")
-    await anyio.sleep(8.0)
-
-    # 9. Stop all runtimes
-    logger.info("Shutting down vertical slice...")
-    await agent.stop()
-    await market_service.stop()
-    await news_service.stop()
-    await account_service.stop()
-    await bus.stop()
-    logger.info("=== Smoke Test Finished Successfully ===")
+async def main(mode: str | None = None) -> None:
+    if mode is None:
+        if "pytest" in sys.modules:
+            mode = "mock"
+        else:
+            cmd_args = sys.argv[1:]
+            if not cmd_args:
+                mode = "mock"
+            elif len(cmd_args) == 2 and cmd_args[0] == "account":
+                mode = cmd_args[1]
+            elif len(cmd_args) == 1:
+                mode = cmd_args[0]
+            else:
+                mode = "mock"
+    await run(mode)
 
 
 if __name__ == "__main__":
-    anyio.run(main)
+    asyncio.run(main())

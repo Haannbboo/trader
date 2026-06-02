@@ -1,6 +1,6 @@
 import os
 import tempfile
-from config import AppConfig, EnvSecretProvider, load_config
+from config import AppConfig, EnvSecretProvider
 
 YAML_CONTENT = """
 mode: live
@@ -39,7 +39,6 @@ def test_config_loading_and_merging():
         ) as yaml_file,
         tempfile.NamedTemporaryFile(suffix=".env", mode="w", delete=False) as env_file,
     ):
-
         yaml_file.write(YAML_CONTENT)
         yaml_file.close()
 
@@ -47,11 +46,6 @@ def test_config_loading_and_merging():
         env_file.close()
 
         try:
-            # 1. Test load_config backward compatibility
-            raw_dict = load_config(yaml_file.name)
-            assert raw_dict["mode"] == "live"
-            assert raw_dict["adapters"]["account"][0]["name"] == "alpaca"
-
             # 2. Test AppConfig parsing
             app_config = AppConfig.load(yaml_file.name, env_file=env_file.name)
 

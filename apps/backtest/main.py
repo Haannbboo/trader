@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import sys
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from loguru import logger
 
 
 from observability import setup_logging
-from config import load_config
+
 from bus import InProcessBus
 from plugins import registry
 from contracts import Bar, Instrument, AssetClass, Event, EventType, Timeframe
@@ -32,8 +33,10 @@ async def main() -> None:
     setup_logging(level="INFO")
     logger.info("=== Starting Backtest Engine ===")
 
-    # 2. Load configurations
-    config = load_config("config/backtest.yaml")
+    import yaml
+
+    with open("config/backtest.yaml", "r") as f:
+        config = yaml.safe_load(f) or {}
     bt_cfg = config.get("backtest", {})
     start_date = bt_cfg.get("start_date", "2026-01-01")
     end_date = bt_cfg.get("end_date", "2026-05-31")

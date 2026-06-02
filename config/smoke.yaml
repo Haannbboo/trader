@@ -1,0 +1,17 @@
+# Trader Live Configuration
+
+# Core system mode: live, paper, backtest
+mode: smoke
+
+# Enabled data adapters and accounts
+adapters:
+  account:
+    - name: alpaca
+      paper: true
+
+# Risk controls and limits
+guardrails:
+  max_drawdown_percent: 5.0
+  max_position_size_dollars: 50000.0
+  max_order_size_dollars: 10000.0
+  kill_switch_enabled: true

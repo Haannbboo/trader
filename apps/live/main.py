@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import sys
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from loguru import logger
 
 
 from observability import setup_logging
-from config import load_config
+
 from bus import RedisStreamBus, InProcessBus
 from plugins import registry
 from market import MarketService
@@ -35,7 +36,10 @@ async def main() -> None:
     logger.info("Starting Trader Live System...")
 
     # 2. Load system configurations
-    config = load_config("config/live.yaml")
+    import yaml
+
+    with open("config/live.yaml", "r") as f:
+        config = yaml.safe_load(f) or {}
 
     # 3. Initialize message bus
     # In live trading we use Redis Streams, or fallback to InProcess if redis is unavailable
@@ -132,7 +136,7 @@ async def main() -> None:
     )
 
     # 8. Start system runtimes
-    async with anyio.create_task_group() as tg:
+    async with anyio.create_task_group() as _tg:
         logger.info("Booting live runtime engines...")
         await market_service.start()
         await news_service.start()

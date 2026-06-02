@@ -1,0 +1,269 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import Optional
+
+import pytest
+
+from contracts import (
+    AssetClass,
+    Balance,
+    Bar,
+    FeatureValue,
+    Instrument,
+    NewsFilter,
+    NewsItem,
+    Order,
+    OrderStatus,
+    Position,
+    Quote,
+    Timeframe,
+)
+from tools import ToolLayer
+
+
+class MockAccountService:
+    def __init__(self) -> None:
+        self.placed_order = None
+        self.cancelled_broker_order_id = None
+
+    async def get_balance(self) -> Balance:
+        return Balance(
+            cash=Decimal("10000"),
+            equity=Decimal("15000"),
+            buying_power=Decimal("20000"),
+            ts_event=datetime(2026, 6, 2, 1, 0, 0, tzinfo=timezone.utc),
+        )
+
+    async def get_positions(self) -> list[Position]:
+        return [
+            Position(
+                instrument=Instrument(symbol="AAPL", asset_class=AssetClass.EQUITY),
+                quantity=Decimal("10"),
+                avg_price=Decimal("150"),
+                ts_event=datetime(2026, 6, 2, 1, 0, 0, tzinfo=timezone.utc),
+            )
+        ]
+
+    async def place_order(self, order: Order) -> Order:
+        self.placed_order = order
+        return order.model_copy(
+            update={
+                "broker_order_id": "broker-456",
+                "status": OrderStatus.PENDING_NEW,
+            }
+        )
+
+    async def cancel_order(self, broker_order_id: str) -> None:
+        self.cancelled_broker_order_id = broker_order_id
+
+
+class MockMarketService:
+    def __init__(self) -> None:
+        self.instrument_quote = None
+        self.bars_args = None
+
+    async def get_quote(self, instrument: Instrument) -> Quote:
+        self.instrument_quote = instrument
+        return Quote(
+            instrument=instrument,
+            bid=Decimal("180.50"),
+            bid_size=Decimal("100"),
+            ask=Decimal("180.60"),
+            ask_size=Decimal("200"),
+            ts_event=datetime(2026, 6, 2, 1, 0, 0, tzinfo=timezone.utc),
+        )
+
+    async def get_bars(
+        self,
+        instrument: Instrument,
+        timeframe: Timeframe,
+        start: datetime,
+        end: datetime,
+    ) -> list[Bar]:
+        self.bars_args = (instrument, timeframe, start, end)
+        return [
+            Bar(
+                instrument=instrument,
+                timeframe=timeframe,
+                open=Decimal("180.00"),
+                high=Decimal("181.00"),
+                low=Decimal("179.50"),
+                close=Decimal("180.50"),
+                volume=Decimal("1000"),
+                ts_open=datetime(2026, 6, 2, 1, 0, 0, tzinfo=timezone.utc),
+            )
+        ]
+
+
+class MockNewsService:
+    def __init__(self) -> None:
+        self.filter = None
+
+    async def query(self, flt: NewsFilter) -> list[NewsItem]:
+        self.filter = flt
+        return [
+            NewsItem(
+                id="news-1",
+                source="mock_news",
+                headline="AAPL stock rises",
+                body="Apple Inc stock price rose on Tuesday.",
+                published_at=datetime(2026, 6, 2, 1, 0, 0, tzinfo=timezone.utc),
+            )
+        ]
+
+
+class MockFeatureService:
+    def __init__(self) -> None:
+        self.args = None
+
+    async def get_value(
+        self,
+        feature: str,
+        instrument: Optional[Instrument] = None,
+    ) -> FeatureValue:
+        self.args = (feature, instrument)
+        return FeatureValue(
+            feature=feature,
+            instrument=instrument,
+            value=Decimal("70.5"),
+            ts_event=datetime(2026, 6, 2, 1, 0, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_tool_specs_advertising() -> None:
+    account = MockAccountService()
+    # Case 1: only account service is present
+    layer1 = ToolLayer(account)
+    specs1 = layer1.tool_specs()
+    names1 = [t["name"] for t in specs1]
+    assert "get_balance" in names1
+    assert "get_positions" in names1
+    assert "place_order" in names1
+    assert "cancel_order" in names1
+    assert "get_quote" not in names1
+    assert "get_bars" not in names1
+    assert "query_news" not in names1
+    assert "get_factor" not in names1
+
+    # Case 2: all services present
+    layer2 = ToolLayer(
+        account,
+        MockMarketService(),
+        MockNewsService(),
+        MockFeatureService(),
+    )
+    specs2 = layer2.tool_specs()
+    names2 = [t["name"] for t in specs2]
+    assert "get_balance" in names2
+    assert "get_quote" in names2
+    assert "query_news" in names2
+    assert "get_factor" in names2
+
+
+@pytest.mark.asyncio
+async def test_dispatch_account_tools() -> None:
+    account = MockAccountService()
+    layer = ToolLayer(account)
+
+    # get_balance
+    balance_res = await layer.dispatch("get_balance", {})
+    assert balance_res["cash"] == "10000"
+    assert balance_res["buying_power"] == "20000"
+
+    # get_positions
+    positions_res = await layer.dispatch("get_positions", {})
+    assert len(positions_res["positions"]) == 1
+    assert positions_res["positions"][0]["instrument"]["symbol"] == "AAPL"
+
+    # place_order
+    order_args = {
+        "client_order_id": "client-1",
+        "symbol": "AAPL",
+        "side": "buy",
+        "quantity": "5",
+        "order_type": "limit",
+        "limit_price": "175.50",
+    }
+    place_res = await layer.dispatch("place_order", order_args)
+    assert place_res["broker_order_id"] == "broker-456"
+    assert place_res["status"] == "pending_new"
+    assert account.placed_order is not None
+    assert account.placed_order.quantity == Decimal("5")
+    assert account.placed_order.limit_price == Decimal("175.50")
+
+    # cancel_order
+    cancel_res = await layer.dispatch("cancel_order", {"broker_order_id": "broker-456"})
+    assert cancel_res["status"] == "success"
+    assert account.cancelled_broker_order_id == "broker-456"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_market_tools() -> None:
+    account = MockAccountService()
+    market = MockMarketService()
+    layer = ToolLayer(account, market=market)
+
+    # get_quote
+    quote_res = await layer.dispatch("get_quote", {"symbol": "AAPL"})
+    assert quote_res["bid"] == "180.50"
+    assert quote_res["ask"] == "180.60"
+    assert market.instrument_quote.symbol == "AAPL"
+
+    # get_bars
+    bars_res = await layer.dispatch(
+        "get_bars",
+        {
+            "symbol": "AAPL",
+            "timeframe": "1m",
+            "start": "2026-06-02T01:00:00Z",
+            "end": "2026-06-02T02:00:00Z",
+        },
+    )
+    assert len(bars_res["bars"]) == 1
+    assert bars_res["bars"][0]["close"] == "180.50"
+    assert market.bars_args[1] == Timeframe.M1
+
+
+@pytest.mark.asyncio
+async def test_dispatch_news_and_features_tools() -> None:
+    account = MockAccountService()
+    news = MockNewsService()
+    features = MockFeatureService()
+    layer = ToolLayer(account, news=news, features=features)
+
+    # query_news
+    news_res = await layer.dispatch(
+        "query_news",
+        {
+            "symbols": ["AAPL"],
+            "sources": ["mock_news"],
+            "keywords": ["rising"],
+            "since": "2026-06-02T00:00:00Z",
+        },
+    )
+    assert len(news_res["news"]) == 1
+    assert news_res["news"][0]["headline"] == "AAPL stock rises"
+    assert news.filter.sources == ("mock_news",)
+
+    # get_factor
+    factor_res = await layer.dispatch(
+        "get_factor", {"feature": "rsi_14", "symbol": "AAPL"}
+    )
+    assert factor_res["value"] == 70.5
+    assert features.args[0] == "rsi_14"
+    assert features.args[1].symbol == "AAPL"
+
+
+def test_stream_specs() -> None:
+    account = MockAccountService()
+    layer = ToolLayer(
+        account, MockMarketService(), MockNewsService(), MockFeatureService()
+    )
+    streams = layer.stream_specs()
+    names = [s["name"] for s in streams]
+    assert "account_events" in names
+    assert "market_events" in names
+    assert "news_events" in names
+    assert "feature_events" in names

@@ -224,29 +224,3 @@ class AppConfig:
                     merged_params = self.source_params("feature", src.name)
                     enabled.append(SourceConfig(name=src.name, params=merged_params))
         return enabled
-
-
-# ---------------------------------------------------------------------------
-# Backwards Compatible Dictionary loader
-# ---------------------------------------------------------------------------
-def load_config(config_path: str = "") -> dict[str, Any]:
-    """Loads configuration yaml file and returns it as a dict.
-    Preserves backwards compatibility for existing setup in runners.
-    """
-    if not config_path:
-        config_path = os.getenv("CONFIG_PATH", "config/live.yaml")
-
-    if not os.path.exists(config_path):
-        fallback_path = os.path.join("..", "..", config_path)
-        if os.path.exists(fallback_path):
-            config_path = fallback_path
-        else:
-            raise ConfigurationError(f"Configuration file not found: {config_path}")
-
-    try:
-        with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
-            logger.info(f"Loaded config from {config_path}")
-            return config
-    except Exception as e:
-        raise ConfigurationError(f"Failed to parse config file '{config_path}': {e}")
