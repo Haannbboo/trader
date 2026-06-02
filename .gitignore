@@ -151,3 +151,6 @@ logs/
 *.jsonl
 !tests/fixtures/**/*.json
 !tests/fixtures/**/*.jsonl
+
+# Claude Code per-directory local notes (never checked in)
+CLAUDE.local.md
