@@ -8,20 +8,20 @@ single source of truth that both Python and TypeScript import.
 
 `ToolSpec` is the wire format for one entry in `GET /tools`. `DispatchRequest`
 is the request body for `POST /dispatch`. `BusEvent` is the SSE data line on
-`GET /stream` — the generic `Event[PayloadT]` is flattened to a non-generic
-shape because JSON Schema has no generics, and the TS client treats the
-payload as a free-form `Record<string, unknown>` anyway.
+`GET /stream` and is intentionally an ALIAS for the generic `Event[dict]`
+defined in contracts/schema.py — it is NOT a second definition that could
+drift. The payload is typed as `dict[str, Any]` because JSON Schema has no
+generics and the TS client treats the payload as `Record<string, unknown>`;
+it discriminates on `type` and parses the payload lazily.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Optional
-from uuid import UUID
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from contracts.schema import EventType
+from contracts.schema import Event
 
 
 class ToolSpec(BaseModel):
@@ -49,19 +49,10 @@ class DispatchRequest(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
 
 
-class BusEvent(BaseModel):
-    """Envelope that flows over `GET /stream` as one SSE `data:` line per
-    occurrence. Generic over payload in Python (`Event[Quote]`, `Event[Fill]`,
-    ...) but flattened here because JSON Schema has no generics and the TS
-    client treats the payload as `Record<string, unknown>` — it discriminates
-    on `type` and parses the payload lazily."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    type: EventType
-    source: str
-    payload: dict[str, Any]
-    ts_event: datetime
-    ts_ingest: datetime
-    event_id: UUID
-    seq: Optional[int] = None
+# `BusEvent` is the SSE wire shape. It is a parameterized generic over the
+# real `Event` envelope from contracts.schema — the same fields, the same
+# `EventType` enum, the same frozen + extra="forbid" rules. Binding the
+# payload to `dict[str, Any]` is what lets the JSON Schema emitter produce
+# a clean `{"type": "object", "additionalProperties": true}` for `payload`
+# without baking in any concrete Quote/Fill/NewsItem shape.
+BusEvent = Event[dict[str, Any]]  # type: ignore[valid-type]
