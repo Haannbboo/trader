@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Callable, Coroutine
 
 import pytest
-
 from adapters.account.alpaca import AlpacaAccountAdapter
 from contracts import (
     AssetClass,

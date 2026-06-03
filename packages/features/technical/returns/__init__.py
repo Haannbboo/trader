@@ -1,5 +1,6 @@
-from typing import Dict, Any, List
-from contracts import Event, Subscription, Processor
+from typing import Any, Dict, List
+
+from contracts import Event, Processor, Subscription
 from plugins import register
 
 

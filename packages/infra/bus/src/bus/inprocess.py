@@ -6,12 +6,12 @@ in-memory per-subscriber queues. Implements the Bus protocol so RedisStreamsBus
 
 from __future__ import annotations
 
-import anyio
-from typing import AsyncIterator, Optional, List, Tuple
-from loguru import logger
+from typing import AsyncIterator, List, Optional, Tuple
 
-from contracts.schema import Event
+import anyio
 from contracts.ports import Subscription
+from contracts.schema import Event
+from loguru import logger
 
 
 class InProcessBus:

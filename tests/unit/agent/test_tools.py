@@ -5,7 +5,6 @@ from decimal import Decimal
 from typing import Optional
 
 import pytest
-
 from contracts import (
     AssetClass,
     Balance,

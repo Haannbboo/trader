@@ -8,8 +8,8 @@ from pydantic import BaseModel
 
 from contracts.schema import (
     AssetClass,
-    Bar,
     Balance,
+    Bar,
     Event,
     EventType,
     FeatureValue,

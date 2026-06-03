@@ -19,16 +19,16 @@ the .env parsing in the real impl.
 
 from __future__ import annotations
 
-
 import os
+from typing import Any, Optional, Protocol, runtime_checkable
+
 import yaml
-from typing import Optional, Protocol, runtime_checkable, Any
-from loguru import logger
-from pydantic import BaseModel, Field, model_validator
 
 # Correct flat imports based on project structure
 from contracts.errors import ConfigurationError
+from loguru import logger
 from plugins import SourceConfig
+from pydantic import BaseModel, Field, model_validator
 
 
 # ---------------------------------------------------------------------------

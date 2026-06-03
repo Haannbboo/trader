@@ -1,6 +1,7 @@
-import anyio
 import time
-from typing import Callable, Awaitable, Any
+from typing import Any, Awaitable, Callable
+
+import anyio
 from loguru import logger
 
 

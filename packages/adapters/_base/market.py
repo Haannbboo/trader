@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import AsyncIterator, Set
-from loguru import logger
+
+from adapters._base.base import BaseAdapter
 from contracts import (
     Bar,
     Event,
@@ -23,7 +24,7 @@ from contracts import (
     Quote,
     Timeframe,
 )
-from adapters._base.base import BaseAdapter
+from loguru import logger
 
 
 class BaseMarketAdapter(BaseAdapter, MarketSourcePort):

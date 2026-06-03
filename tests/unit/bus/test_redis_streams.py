@@ -14,7 +14,6 @@ from typing import List
 
 import fakeredis
 import pytest
-
 from bus import RedisStreamBus
 from contracts import (
     AssetClass,

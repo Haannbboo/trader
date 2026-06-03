@@ -25,9 +25,8 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Protocol, runtime_checkable
 
-from pydantic import BaseModel
-
 from contracts.schema import Order, Position
+from pydantic import BaseModel
 
 
 class RiskRejected(Exception):

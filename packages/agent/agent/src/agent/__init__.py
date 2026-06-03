@@ -1,7 +1,7 @@
 from typing import Any, Dict
 
-from guardrail import Guardrail
 from contracts import Bus
+from guardrail import Guardrail
 
 
 class TraderAgentHarness:

@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, AsyncIterator, Protocol, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, AsyncIterator, Protocol
 
 from adapters._base import BaseAccountAdapter
 from contracts import (

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from decimal import Decimal
-import pytest
 
+import pytest
 from contracts import (
     AssetClass,
     Instrument,
@@ -12,12 +12,12 @@ from contracts import (
     TimeInForce,
 )
 from guardrail import (
+    BuyingPowerRule,
     Guardrail,
+    MaxQuantityRule,
     RiskContext,
     RiskRejected,
     RuleResult,
-    MaxQuantityRule,
-    BuyingPowerRule,
 )
 
 

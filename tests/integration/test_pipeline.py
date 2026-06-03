@@ -1,14 +1,14 @@
 import pytest
+from adapters.market.polygon import PolygonMarketAdapter
 from bus import InProcessBus
-from market import MarketService
+from contracts import (
+    AssetClass,
+    Instrument,
+)
 from feature import FeatureService
 from feature.runtime import FeatureRuntime
-from contracts import (
-    Instrument,
-    AssetClass,
-)
 from features.technical.rsi import RSIProcessor
-from adapters.market.polygon import PolygonMarketAdapter
+from market import MarketService
 
 
 @pytest.mark.asyncio

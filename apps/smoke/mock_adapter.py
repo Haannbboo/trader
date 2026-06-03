@@ -17,8 +17,6 @@ from decimal import Decimal
 from typing import AsyncIterator
 
 from contracts import (
-    SourceCapabilities,
-    SourceMode,
     AssetClass,
     Balance,
     Event,
@@ -29,6 +27,8 @@ from contracts import (
     OrderStatus,
     Position,
     Side,
+    SourceCapabilities,
+    SourceMode,
 )
 
 

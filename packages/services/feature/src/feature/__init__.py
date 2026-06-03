@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from typing import AsyncIterator, Optional
+
 from contracts import (
+    Event,
     FeatureValue,
     Instrument,
-    Event,
+)
+from contracts import (
     FeatureService as FeatureServiceInterface,
 )
+
 from feature.runtime import FeatureRuntime
 
 

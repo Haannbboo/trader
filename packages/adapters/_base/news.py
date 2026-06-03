@@ -12,8 +12,9 @@ Structurally satisfies NewsSourcePort. Depends on contracts + transport + base.
 from __future__ import annotations
 
 from typing import AsyncIterator
-from contracts import NewsFilter, NewsItem, Event, NewsSourcePort
+
 from adapters._base.base import BaseAdapter
+from contracts import Event, NewsFilter, NewsItem, NewsSourcePort
 
 
 class BaseNewsAdapter(BaseAdapter, NewsSourcePort):

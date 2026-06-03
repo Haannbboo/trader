@@ -39,20 +39,20 @@ import os
 import signal
 from typing import Any
 
-from loguru import logger
-
 from account import AccountService
-from apps.live.pi_gateway import AgentGateway
 from bus import InProcessBus
-from config import AppConfig
 from feature import FeatureService
 from feature.runtime import FeatureRuntime
 from guardrail import Guardrail
+from loguru import logger
 from market import MarketService
 from news import NewsService
 from observability import setup_logging
 from plugins import discover, registry
 from tools import ToolLayer
+
+from apps.live.pi_gateway import AgentGateway
+from config import AppConfig
 
 # Default port for the agent gateway. Overridable via cfg.settings.agent.gateway_port.
 _DEFAULT_GATEWAY_PORT = 8787

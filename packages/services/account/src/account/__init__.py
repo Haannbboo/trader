@@ -30,6 +30,8 @@ from typing import AsyncIterator
 
 from contracts import (
     AccountService as AccountServiceInterface,
+)
+from contracts import (
     AccountSourcePort,
     Balance,
     Bus,

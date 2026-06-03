@@ -24,7 +24,7 @@ test-v:
 # Format code using black or ruff
 format:
     uv run black packages/ apps/ tests/
-    uv run ruff check --fix packages/ apps/ tests/
+    uv run ruff check --extend-select I --fix packages/ apps/ tests/
 
 # Run the smoke app (vertical slice).
 # Note: config/smoke.yaml sets infra.bus.url, so this requires a Redis to be

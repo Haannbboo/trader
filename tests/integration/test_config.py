@@ -1,5 +1,6 @@
 import os
 import tempfile
+
 from config import AppConfig, EnvSecretProvider
 
 YAML_CONTENT = """

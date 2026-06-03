@@ -1,9 +1,9 @@
 from plugins.registry import (
-    registry,
-    register,
-    discover,
     Registry,
     SourceConfig,
+    discover,
+    register,
+    registry,
 )
 
 __all__ = [

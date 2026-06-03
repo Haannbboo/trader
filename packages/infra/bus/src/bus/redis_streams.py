@@ -14,9 +14,6 @@ from datetime import datetime
 from typing import Any, AsyncIterator, Optional
 
 import redis.asyncio
-from loguru import logger
-from redis.exceptions import ResponseError
-
 from contracts.ports import Subscription
 from contracts.schema import (
     Balance,
@@ -31,6 +28,8 @@ from contracts.schema import (
     Position,
     Quote,
 )
+from loguru import logger
+from redis.exceptions import ResponseError
 
 # Map EventType -> payload class. Events are deserialized into the right typed
 # payload here, because Pydantic's Generic[PayloadT] carries no runtime type

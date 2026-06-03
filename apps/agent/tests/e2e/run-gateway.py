@@ -37,11 +37,12 @@ sys.path.insert(0, str(REPO / "packages"))
 for _src in (REPO / "packages").glob("**/src"):
     sys.path.insert(0, str(_src))
 
-from apps.live.pi_gateway import AgentGateway  # noqa: E402
 from bus.inprocess import InProcessBus  # noqa: E402
 from contracts.gateway import BusEvent  # noqa: E402
 from contracts.schema import Balance, EventType, Order, OrderStatus  # noqa: E402
 from tools import ToolLayer  # noqa: E402
+
+from apps.live.pi_gateway import AgentGateway  # noqa: E402
 
 
 class StubAccount:

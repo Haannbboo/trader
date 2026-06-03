@@ -1,5 +1,6 @@
 import anyio
 import pytest
+
 from apps.smoke.main import main as smoke_main
 
 

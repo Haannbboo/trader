@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import AsyncIterator
 
 import pytest
-
+from account import AccountService
 from contracts import (
     AssetClass,
     Balance,
@@ -21,7 +21,6 @@ from contracts import (
     TimeInForce,
 )
 from guardrail import Guardrail
-from account import AccountService
 
 
 class MockAccountSource:

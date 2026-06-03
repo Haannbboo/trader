@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import importlib
-from typing import Callable, Iterable, Sequence, TypeVar, Dict, Any, Type
-from loguru import logger
-from pydantic import BaseModel
+from typing import Any, Callable, Dict, Iterable, Sequence, Type, TypeVar
 
 # Imports pointing to our actual contract schemas
 from contracts.ports import Processor
+from loguru import logger
+from pydantic import BaseModel
 
 T = TypeVar("T")
 Domain = str  # "market" | "news" | "account" | "feature"

@@ -1,5 +1,6 @@
 from typing import Any, Dict
-from contracts.schema import Order, Fill
+
+from contracts.schema import Fill, Order
 
 
 class PersistenceManager:

@@ -9,22 +9,22 @@ for p in (root_dir / "packages").glob("**/src"):
     sys.path.insert(0, str(p))
 
 
-import anyio
 import argparse
-from decimal import Decimal
 from datetime import datetime, timezone
-from loguru import logger
+from decimal import Decimal
 
+import anyio
 from bus import InProcessBus
 from contracts import (
-    Bar,
-    Instrument,
     AssetClass,
-    Timeframe,
+    Bar,
     Event,
     EventType,
+    Instrument,
     Subscription,
+    Timeframe,
 )
+from loguru import logger
 from plugins import registry
 
 

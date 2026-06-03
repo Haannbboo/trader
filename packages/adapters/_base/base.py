@@ -47,10 +47,10 @@ shape, `**params` keeps it agnostic about credential shape.
 
 from __future__ import annotations
 
+from contracts import AssetClass, SourceCapabilities, SourceMode
+from contracts.errors import TraderError
 from loguru import logger
 from transport import RateLimiter
-from contracts import SourceCapabilities, SourceMode, AssetClass
-from contracts.errors import TraderError
 
 
 class BaseAdapter:

@@ -9,23 +9,21 @@ for p in (root_dir / "packages").glob("**/src"):
     sys.path.insert(0, str(p))
 
 
-import anyio
-from decimal import Decimal
 from datetime import datetime, timedelta, timezone
-from loguru import logger
+from decimal import Decimal
 
-
-from observability import setup_logging
-
-from bus import InProcessBus
-from plugins import registry
-from contracts import Bar, Instrument, AssetClass, Event, EventType, Timeframe
+import anyio
 from account import AccountService
+from agent import TraderAgentHarness
+from bus import InProcessBus
+from contracts import AssetClass, Bar, Event, EventType, Instrument, Timeframe
 from feature import FeatureService
 from feature.runtime import FeatureRuntime
 from guardrail import Guardrail
+from loguru import logger
+from observability import setup_logging
+from plugins import registry
 from tools import ToolLayer
-from agent import TraderAgentHarness
 
 
 async def main() -> None:

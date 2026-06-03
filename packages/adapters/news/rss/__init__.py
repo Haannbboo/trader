@@ -1,7 +1,8 @@
 from typing import AsyncIterator
-from contracts import NewsFilter, NewsItem, Event
-from plugins import register
+
 from adapters._base import BaseNewsAdapter
+from contracts import Event, NewsFilter, NewsItem
+from plugins import register
 
 
 @register("news", "rss")

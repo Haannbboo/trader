@@ -69,3 +69,27 @@ minversion = "6.0"
 addopts = "-ra -q --tb=short"
 testpaths = ["tests", "packages"]
 asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.11"
+explicit_package_bases = true
+namespace_packages = true
+mypy_path = [
+    "packages",
+    "packages/contracts/src",
+    "packages/infra/bus/src",
+    "packages/infra/config/src",
+    "packages/infra/observability/src",
+    "packages/infra/persistence/src",
+    "packages/infra/plugins/src",
+    "packages/infra/transport/src",
+    "packages/services/account/src",
+    "packages/services/feature/src",
+    "packages/services/guardrail/src",
+    "packages/services/market/src",
+    "packages/services/news/src",
+    "packages/agent/agent/src",
+    "packages/agent/strategies/src",
+    "packages/agent/tools/src",
+]
+ignore_missing_imports = true

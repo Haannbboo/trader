@@ -13,16 +13,17 @@ guardrail at the SERVICE layer; this base only does broker-protocol commonality.
 from __future__ import annotations
 
 from typing import AsyncIterator
+
+from adapters._base.base import BaseAdapter
 from contracts import (
+    AccountSourcePort,
     Balance,
     Event,
     Fill,
     Order,
     OrderStatus,
     Position,
-    AccountSourcePort,
 )
-from adapters._base.base import BaseAdapter
 
 
 class BaseAccountAdapter(BaseAdapter, AccountSourcePort):

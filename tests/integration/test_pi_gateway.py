@@ -17,16 +17,16 @@ import asyncio
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
-
 from account import AccountService
-from apps.live.pi_gateway import AgentGateway
-from apps.smoke.mock_adapter import MockAccountAdapter
 from bus import InProcessBus
 from contracts.gateway import DispatchRequest, ToolSpec
 from contracts.schema import Order
+from fastapi.testclient import TestClient
 from guardrail import Guardrail, RiskRejected, RiskRule, RuleResult
 from tools import ToolLayer
+
+from apps.live.pi_gateway import AgentGateway
+from apps.smoke.mock_adapter import MockAccountAdapter
 
 
 # --- helpers ----------------------------------------------------------------

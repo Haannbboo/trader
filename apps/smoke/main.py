@@ -35,12 +35,13 @@ for p in (root_dir / "packages").glob("**/src"):
 
 import asyncio
 
-from apps.smoke.mock_adapter import MockAccountAdapter
+from account import AccountService  # pyrefly: ignore [missing-import]
 from bus import InProcessBus, RedisStreamBus  # pyrefly: ignore [missing-import]
 from contracts import AccountSourcePort
-from account import AccountService  # pyrefly: ignore [missing-import]
-from tools import ToolLayer  # pyrefly: ignore [missing-import]
 from guardrail import Guardrail  # pyrefly: ignore [missing-import]
+from tools import ToolLayer  # pyrefly: ignore [missing-import]
+
+from apps.smoke.mock_adapter import MockAccountAdapter
 from config import AppConfig  # pyrefly: ignore [missing-import]
 
 

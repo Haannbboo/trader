@@ -29,10 +29,6 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, AsyncIterator
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import StreamingResponse
-from loguru import logger
-
 from contracts.gateway import DispatchRequest  # pyrefly: ignore [missing-import]
 from contracts.ports import Subscription  # pyrefly: ignore [missing-import]
 from contracts.schema import (
@@ -40,7 +36,10 @@ from contracts.schema import (
     EventType,
     Instrument,
 )  # pyrefly: ignore [missing-import]
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from guardrail import RiskRejected  # pyrefly: ignore [missing-import]
+from loguru import logger
 
 if TYPE_CHECKING:
     import socket

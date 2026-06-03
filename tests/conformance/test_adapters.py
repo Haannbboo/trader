@@ -1,8 +1,8 @@
 from importlib import import_module
 
 import pytest
-from plugins import registry
 from contracts import AccountSourcePort, MarketSourcePort, NewsSourcePort
+from plugins import registry
 
 # Trigger imports to register plugins
 for module_name in (
