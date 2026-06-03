@@ -70,10 +70,20 @@ class StubAccount:
         return None
 
 
-def free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+def bind_ephemeral_port() -> tuple[socket.socket, int]:
+    """Pre-bind a listening socket on 127.0.0.1:<kernel-chosen> and return it
+    alongside the resolved port. The kernel-assigned port is reserved from the
+    moment of bind(), so the TS test's poll loop can't race another process
+    into claiming it before uvicorn starts accepting.
+
+    The caller owns the socket and passes it to AgentGateway.serve(sockets=[sock])
+    so uvicorn accept()s on this exact fd — no second bind. uvicorn closes the
+    socket on shutdown."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.listen(128)  # uvicorn's default backlog
+    return sock, port
 
 
 async def _publish_samples(bus: InProcessBus) -> None:
@@ -98,13 +108,15 @@ async def _publish_samples(bus: InProcessBus) -> None:
 
 
 async def main() -> None:
-    port = free_port()
+    sock, port = bind_ephemeral_port()
     bus = InProcessBus()
     await bus.start()
     tool_layer = ToolLayer(account=StubAccount())
     gateway = AgentGateway(tool_layer=tool_layer, bus=bus)
-    # The TS test reads this line to discover the port. Flush so the test
-    # doesn't have to wait on stdio buffering.
+    # The TS test reads this line to discover the port. By this point the
+    # port is already bound to `sock` and reserved, so advertising it is
+    # race-free: the only thing that can accept on that port is `sock`.
+    # Flush so the test doesn't have to wait on stdio buffering.
     print(json.dumps({"port": port}), flush=True)
 
     # Background publisher: see _publish_samples docstring. Cancellation
@@ -112,7 +124,10 @@ async def main() -> None:
     publisher = asyncio.create_task(_publish_samples(bus))
 
     try:
-        await gateway.serve(host="127.0.0.1", port=port)
+        # Pass the pre-bound listening socket to uvicorn via serve(sockets=...)
+        # so uvicorn doesn't re-bind (which would lose the kernel-assigned port
+        # to TIME_WAIT if a previous harness crashed on the same port).
+        await gateway.serve(host="127.0.0.1", port=port, sockets=[sock])
     finally:
         publisher.cancel()
         try:

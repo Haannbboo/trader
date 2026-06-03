@@ -43,6 +43,8 @@ from contracts.schema import (
 from guardrail import RiskRejected  # pyrefly: ignore [missing-import]
 
 if TYPE_CHECKING:
+    import socket
+
     from contracts.ports import Bus  # pyrefly: ignore [missing-import]
 
     # ToolLayer is a structural dependency; typed loosely to avoid import coupling.
@@ -278,7 +280,13 @@ class AgentGateway:
             except Exception:
                 logger.exception("failed to close bus subscription stream")
 
-    async def serve(self, *, host: str = "127.0.0.1", port: int = 8787) -> None:
+    async def serve(
+        self,
+        *,
+        host: str = "127.0.0.1",
+        port: int = 8787,
+        sockets: "list[socket.socket] | None" = None,
+    ) -> None:
         """Run the HTTP server on the CURRENT event loop (uvicorn.Server.serve()),
         so it coexists with the bus/services rather than taking over. apps/live
         calls this inside its asyncio.gather alongside service.start().
@@ -321,4 +329,8 @@ class AgentGateway:
             log_config=None,
         )
         server = uvicorn.Server(config)
-        await server.serve()
+        # `sockets=` is a Server.serve() parameter, not a Config parameter.
+        # When provided, uvicorn skips host/port bind and accepts() on the
+        # pre-bound fds — used by the e2e harness to publish a port that is
+        # already reserved (no race between advertise() and bind()).
+        await server.serve(sockets=sockets)
