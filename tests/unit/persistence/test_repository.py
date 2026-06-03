@@ -11,6 +11,7 @@ from contracts.schema import (
     Event,
     EventType,
     Instrument,
+    NewsItem,
     OptionRight,
     Timeframe,
 )
@@ -194,3 +195,103 @@ async def test_fetch_bars_start_after_end_returns_empty(tmp_db: Database) -> Non
         end=_utc(2026, 1, 1),
     )
     assert bars == []
+
+
+# --- fetch_news ------------------------------------------------------------
+
+
+def _news_event(news_id: str, ts: datetime, source: str = "rss") -> Event:
+    n = NewsItem(
+        id=news_id,
+        source=source,
+        headline="h",
+        published_at=ts,
+    )
+    return Event(type=EventType.NEWS, source=source, payload=n, ts_event=ts)
+
+
+async def _write_news(db: Database, events: list[Event]) -> None:
+    from persistence.writer import PersistenceWriter
+
+    w = PersistenceWriter(bus=_NullBus(), db=db)  # type: ignore[arg-type]
+    for ev in events:
+        await w._handle(ev)
+
+
+async def test_fetch_news_empty_returns_empty_list(tmp_db: Database) -> None:
+    repo = Repository(tmp_db)
+    assert await repo.fetch_news() == []
+
+
+async def test_fetch_news_returns_all_in_range_ordered(tmp_db: Database) -> None:
+    ts1, ts2, ts3 = _utc(2026, 1, 1), _utc(2026, 1, 2), _utc(2026, 1, 3)
+    await _write_news(
+        tmp_db,
+        [
+            _news_event("a", ts1),
+            _news_event("b", ts2),
+            _news_event("c", ts3),
+        ],
+    )
+    repo = Repository(tmp_db)
+    items = await repo.fetch_news(
+        start=_utc(2026, 1, 1),
+        end=_utc(2026, 1, 31),
+    )
+    assert [n.id for n in items] == ["a", "b", "c"]
+    assert [n.published_at for n in items] == [ts1, ts2, ts3]
+
+
+async def test_fetch_news_filters_by_time_range(tmp_db: Database) -> None:
+    ts1, ts2, ts3 = _utc(2026, 1, 1), _utc(2026, 1, 15), _utc(2026, 1, 31)
+    await _write_news(
+        tmp_db,
+        [
+            _news_event("a", ts1),
+            _news_event("b", ts2),
+            _news_event("c", ts3),
+        ],
+    )
+    repo = Repository(tmp_db)
+    items = await repo.fetch_news(
+        start=_utc(2026, 1, 10),
+        end=_utc(2026, 1, 20),
+    )
+    assert [n.id for n in items] == ["b"]
+
+
+async def test_fetch_news_round_trips_fields(tmp_db: Database) -> None:
+    ts = _utc(2026, 1, 1)
+    await _write_news(
+        tmp_db,
+        [
+            Event(
+                type=EventType.NEWS,
+                source="rss",
+                payload=NewsItem(
+                    id="n1",
+                    source="rss",
+                    published_at=ts,
+                    headline="Hello",
+                    body="World",
+                    url="https://example.com",
+                ),
+                ts_event=ts,
+            )
+        ],
+    )
+    repo = Repository(tmp_db)
+    items = await repo.fetch_news()
+    assert len(items) == 1
+    n = items[0]
+    assert n.id == "n1"
+    assert n.source == "rss"
+    assert n.headline == "Hello"
+    assert n.body == "World"
+    assert n.url == "https://example.com"
+
+
+async def test_fetch_news_start_after_end_returns_empty(tmp_db: Database) -> None:
+    await _write_news(tmp_db, [_news_event("a", _utc(2026, 1, 1))])
+    repo = Repository(tmp_db)
+    assert await repo.fetch_news(start=_utc(2026, 1, 31), end=_utc(2026, 1, 1)) == []
