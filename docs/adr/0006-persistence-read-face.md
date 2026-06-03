@@ -1,4 +1,4 @@
-# ADR-0003: Persistence Read Face
+# ADR-0006: Persistence Read Face
 
 ## Context
 

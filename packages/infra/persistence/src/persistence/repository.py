@@ -13,7 +13,7 @@ Returns schema DTOs (Bar / NewsItem / Fill), not ORM rows — callers stay in th
 schema vocabulary, the ORM never leaks past this boundary.
 
 replay_events (k-way merge across bars+news+fills in ts_event global order) is
-intentionally out of scope for this iteration; see ADR-0003 and the
+intentionally out of scope for this iteration; see ADR-0006 and the
 "Follow-ups" list in the design spec.
 """
 
@@ -118,7 +118,7 @@ class Repository:
         NOTE: the instruments=... filter is intentionally NOT in this signature
         yet. The NewsRow model has no instrument column; adding the filter here
         now would force a silent ignore or a NotImplementedError. Adding a
-        news_instruments link table is a follow-up — see ADR-0003.
+        news_instruments link table is a follow-up — see ADR-0006.
         """
         if start is not None and end is not None and start > end:
             logger.warning(
@@ -153,7 +153,7 @@ class Repository:
 
         Optional broker_order_id narrows to a single order. The
         client_order_id=... filter is deferred (FillRow doesn't carry
-        client_order_id) — see ADR-0003.
+        client_order_id) — see ADR-0006.
         """
         if start is not None and end is not None and start > end:
             logger.warning(
@@ -191,7 +191,7 @@ def _instrument_from_row(row) -> Instrument:
     that are NOT in _InstrumentCols — they are not persisted. The re-inflated
     Instrument always has currency="USD" (the Instrument default) and
     exchange=None. Fixing this is a model change (add columns, migrate,
-    update writer) — out of scope for this PR; see ADR-0003.
+    update writer) — out of scope for this PR; see ADR-0006.
     """
     right = OptionRight(row.right) if row.right is not None else None
     return Instrument(
