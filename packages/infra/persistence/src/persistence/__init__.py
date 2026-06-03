@@ -1,23 +1,16 @@
-from typing import Any, Dict
+"""persistence — async storage for raw facts (bars, news, fills).
 
-from contracts.schema import Fill, Order
+Public surface:
+  - Database:           async engine + session context manager.
+  - PersistenceWriter:  bus consumer that durably stores BAR / NEWS / FILL events.
+  - Repository:         read face (bars/news/fills) — implements HistoryStore.
 
+Configure via a DSN (e.g. "postgresql+asyncpg://..." for prod,
+"sqlite+aiosqlite:///path/to.db" for dev/test). Connection management lives in
+Database; the writer and repository are stateless wrappers around it.
+"""
+from persistence.engine import Database
+from persistence.repository import Repository
+from persistence.writer import PersistenceWriter
 
-class PersistenceManager:
-    """Manages writing fills, historical bars, and order execution logs to disk."""
-
-    def __init__(self, data_dir: str = "data") -> None:
-        """Initialize PersistenceManager to write to path."""
-        raise NotImplementedError()
-
-    def log_order(self, order: Order) -> None:
-        """Appends order state update to a JSON lines file."""
-        raise NotImplementedError()
-
-    def log_fill(self, fill: Fill) -> None:
-        """Appends executed fills to local fill logs."""
-        raise NotImplementedError()
-
-    def save_state(self, key: str, state: Dict[str, Any]) -> None:
-        """Persists arbitrary state to a file."""
-        raise NotImplementedError()
+__all__ = ["Database", "Repository", "PersistenceWriter"]
