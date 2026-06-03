@@ -13,6 +13,11 @@ Run:
 The ONLY difference between the two modes is which adapter is built. Everything
 downstream (service, bus, tools) is identical — that substitutability is the
 thing this slice exists to demonstrate.
+
+The bus impl is also driven by config: if `infra.bus.url` is set in
+config/smoke.yaml the slice uses RedisStreamBus (start `just up` first); if
+not, it falls back to InProcessBus. That's the same swap-in-place story, one
+layer up.
 """
 
 from __future__ import annotations
@@ -31,27 +36,42 @@ for p in (root_dir / "packages").glob("**/src"):
 import asyncio
 
 from apps.smoke.mock_adapter import MockAccountAdapter
-from bus import InProcessBus  # pyrefly: ignore [missing-import]
+from bus import InProcessBus, RedisStreamBus  # pyrefly: ignore [missing-import]
 from contracts import AccountSourcePort
 from account import AccountService  # pyrefly: ignore [missing-import]
 from tools import ToolLayer  # pyrefly: ignore [missing-import]
 from guardrail import Guardrail  # pyrefly: ignore [missing-import]
+from config import AppConfig  # pyrefly: ignore [missing-import]
 
 
-def build_adapter(mode: str) -> AccountSourcePort:
+def build_adapter(mode: str, cfg: AppConfig) -> AccountSourcePort:
     """The one switch point. mock = offline; alpaca = real paper account."""
     if mode == "mock":
         return MockAccountAdapter(n_fills=3, interval_s=0.3)
     if mode == "alpaca":
         # Real path: config resolves the secret and splats it into the ctor,
         # exactly as registry.build_sources would in apps/live.
-        from config import AppConfig
         from adapters.account.alpaca import AlpacaAccountAdapter  # your real adapter
 
-        cfg = AppConfig.load("config/smoke.yaml")
         params = cfg.source_params("account", "alpaca")
         return AlpacaAccountAdapter(**params)
     raise SystemExit(f"unknown mode {mode!r}; use 'mock' or 'alpaca'")
+
+
+def build_bus(cfg: AppConfig) -> InProcessBus | RedisStreamBus:
+    """If `infra.bus.url` is set, use RedisStreamBus (durability + multi-process
+    fan-out); otherwise fall back to InProcessBus. The downstream service and
+    tools see the same Bus protocol either way."""
+    bus_cfg = cfg.settings.infra.bus
+    if bus_cfg.url:
+        print(f"  [bus] RedisStreamBus → {bus_cfg.url} (stream={bus_cfg.stream!r})")
+        return RedisStreamBus(
+            redis_url=bus_cfg.url,
+            stream=bus_cfg.stream,
+            maxlen=bus_cfg.maxlen,
+        )
+    print("  [bus] InProcessBus (no infra.bus.url in config — set one to swap)")
+    return InProcessBus()
 
 
 async def bus_watcher(service: AccountService, stop: asyncio.Event) -> None:
@@ -68,8 +88,9 @@ async def bus_watcher(service: AccountService, stop: asyncio.Event) -> None:
 
 async def run(mode: str) -> None:
     print(f"=== smoke slice: mode={mode} ===")
-    bus = InProcessBus()
-    adapter = build_adapter(mode)
+    cfg = AppConfig.load("config/smoke.yaml")
+    bus = build_bus(cfg)
+    adapter = build_adapter(mode, cfg)
     guardrail = Guardrail([])
     service = AccountService(sources=[adapter], bus=bus, guardrail=guardrail)
     tools = ToolLayer(account=service)
@@ -117,7 +138,7 @@ async def run(mode: str) -> None:
     watcher.cancel()
 
     await service.stop()
-    await bus.close()
+    await bus.stop()
     print("\n=== done ===")
 
 

@@ -1,0 +1,38 @@
+# Local infrastructure for Trader.
+#
+# Start:    just up
+# Stop:     just down
+# Tail logs: docker compose -f deploy/compose.yaml logs -f redis
+#
+# Exposes Redis on localhost:6379 so apps/live/main.py (and any other process
+# reading REDIS_HOST/REDIS_PORT from .env) can connect with
+#     redis_url = "redis://localhost:6379/0"
+# The bus's `MAXLEN ~ 100000` cap bounds the stream; the maxmemory + noeviction
+# below is a backstop so a runaway client can't fill the host disk during dev.
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: trader-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - "noeviction"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+      start_period: 1s
+
+volumes:
+  redis-data:

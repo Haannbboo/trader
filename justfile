@@ -26,7 +26,10 @@ format:
     uv run black packages/ apps/ tests/
     uv run ruff check --fix packages/ apps/ tests/
 
-# Run the smoke app (vertical slice)
+# Run the smoke app (vertical slice).
+# Note: config/smoke.yaml sets infra.bus.url, so this requires a Redis to be
+# reachable — `just up` first. Comment out the url in config/smoke.yaml if
+# you want to run the smoke offline (it will fall back to InProcessBus).
 smoke:
     uv run python apps/smoke/main.py
 
@@ -45,3 +48,12 @@ cli *args:
 # Drive a one-shot Pi Agent against the live gateway (apps/live must be running)
 agent *args:
     cd apps/agent && pnpm start -- {{args}}
+
+# Start local infrastructure (Redis) in the background; waits until healthy
+up:
+    docker compose -f deploy/compose.yaml up -d --wait
+    @echo "Redis is ready on redis://localhost:6379/0"
+
+# Stop local infrastructure
+down:
+    docker compose -f deploy/compose.yaml down

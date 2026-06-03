@@ -47,3 +47,14 @@ guardrails:
 agent:
   strategy: trend_following_agent
   react_loop_interval_seconds: 5.0
+
+# Non-adapter infrastructure (event bus, persistence, ...). `bus.url` is
+# intentionally left blank here so the live profile doesn't accidentally
+# point at a developer-local Redis — set it (via env substitution or a
+# real config layer) to your production Redis endpoint before running
+# `just live`. The `stream` and `maxlen` defaults are fine to keep on.
+infra:
+  bus:
+    # url: redis://your-prod-redis:6379/0
+    stream: trader:events
+    maxlen: 100000

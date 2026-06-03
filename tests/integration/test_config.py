@@ -97,3 +97,58 @@ def test_config_loading_and_merging():
         finally:
             os.unlink(yaml_file.name)
             os.unlink(env_file.name)
+
+
+# ---------------------------------------------------------------------------
+# infra.bus — settings that flow into RedisStreamBus (or whichever bus impl)
+# ---------------------------------------------------------------------------
+BUS_YAML = """
+mode: live
+infra:
+  bus:
+    url: redis://localhost:6379/0
+    stream: trader:events
+    maxlen: 50000
+"""
+
+BUS_YAML_DEFAULTS = """
+mode: live
+infra:
+  bus: {}
+"""
+
+
+def _load(yaml_text: str) -> AppConfig:
+    with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+        f.write(yaml_text)
+        f.flush()
+        path = f.name
+    try:
+        return AppConfig.load(path, env_file="/dev/null")
+    finally:
+        os.unlink(path)
+
+
+def test_infra_bus_section_parses_explicit_fields() -> None:
+    """An `infra.bus` block in the yaml is parsed into typed fields."""
+    cfg = _load(BUS_YAML)
+    bus = cfg.settings.infra.bus
+    assert bus.url == "redis://localhost:6379/0"
+    assert bus.stream == "trader:events"
+    assert bus.maxlen == 50000
+
+
+def test_infra_bus_section_uses_sensible_defaults() -> None:
+    """An empty `infra.bus` block still produces a usable config (no url set)."""
+    cfg = _load(BUS_YAML_DEFAULTS)
+    bus = cfg.settings.infra.bus
+    assert bus.url is None
+    assert bus.stream == "trader:events"
+    assert bus.maxlen == 100_000
+
+
+def test_settings_load_when_infra_section_absent() -> None:
+    """Configs that pre-date the bus section keep loading with default bus settings."""
+    cfg = _load(YAML_CONTENT)
+    assert cfg.settings.infra.bus.url is None
+    assert cfg.settings.infra.bus.stream == "trader:events"
