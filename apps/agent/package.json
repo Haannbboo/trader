@@ -19,7 +19,8 @@
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.78.0",
     "@earendil-works/pi-ai": "^0.78.0",
-    "@sinclair/typebox": "^0.34.13"
+    "@sinclair/typebox": "^0.34.13",
+    "dotenv": "^16.4.5"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
