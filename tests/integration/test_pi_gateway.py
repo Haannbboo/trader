@@ -173,7 +173,7 @@ def test_riskrejected_is_importable_and_carries_expected_fields() -> None:
 # sync with the Pydantic models in `contracts.gateway`. If a Python dev adds
 # a required field to `ToolSpec` without updating the gateway (or the gateway
 # starts returning a field that's not in the model), these tests fail and
-# flag the drift. The TS side (packages/tool-client/src/types.ts) mirrors
+# flag the drift. The TS side (apps/agent/src/forwarder/types.ts) mirrors
 # these shapes by hand and should be updated in the same commit.
 #
 # See docs/adr/0002-contracts-strategy.md for why we don't generate the TS
@@ -205,7 +205,7 @@ def test_get_tools_response_conforms_to_tool_spec_model() -> None:
 def test_dispatch_request_body_conforms_to_dispatch_request_model() -> None:
     """A canonical /dispatch request body MUST validate against `DispatchRequest`
     (the model FastAPI uses at the route boundary). If the request shape
-    changes here, the corresponding TS type in packages/tool-client/src/types.ts
+    changes here, the corresponding TS type in apps/agent/src/forwarder/types.ts
     needs to change too — this test is the canary that fires first."""
     body = {"name": "get_balance", "args": {}}
     parsed = DispatchRequest.model_validate(body)

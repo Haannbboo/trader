@@ -4,7 +4,7 @@
 
 The AgentGateway (`apps/live/pi_gateway.py`) is the cross-language HTTP
 seam between the Python trading platform and the TypeScript forwarder in
-`packages/tool-client/`. Both ends must agree on three wire shapes:
+`apps/agent/src/forwarder/`. Both ends must agree on three wire shapes:
 
 - `GET /tools` — `list[ToolSpec]`
 - `POST /dispatch` — `DispatchRequest` body, arbitrary response

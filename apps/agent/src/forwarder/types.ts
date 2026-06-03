@@ -1,10 +1,10 @@
 /**
  * Wire types for the AgentGateway HTTP seam.
  *
- * These mirror the JSON Schemas in /contracts/*.schema.json. If the Pydantic
- * models in packages/contracts change, regenerate with `just gen-contracts`
- * and update these types. Drift is caught by tests/client.test.ts which
- * cross-checks the runtime response against these shapes.
+ * These hand-mirror the Pydantic models in packages/contracts (Python is the
+ * source of truth; see docs/adr/0002-contracts-strategy.md). If those models
+ * change, update these types by hand. Drift is guarded by the contract tests
+ * (tests/forwarder/client.test.ts and tests/integration/test_pi_gateway.py).
  */
 
 /** One tool the agent can invoke. Returned by `GET /tools`. */

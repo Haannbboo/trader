@@ -36,9 +36,10 @@ export type JsonSchemaObject = {
 
 /**
  * Convert a JSON Schema object into a TypeBox `TSchema`.
- * Throws on inputs that aren't objects (e.g. a `true` boolean schema) — the
- * gateway never produces those today, and silently accepting them would hide
- * a real protocol drift.
+ * Unrecognized shapes (e.g. a `true` boolean schema, `oneOf`, `$ref`) fall
+ * back to `Type.Unknown()` so the tool stays loadable; the gateway never
+ * produces those today, and silently loading them keeps the LLM working even
+ * if the gateway's surface grows ahead of this matrix.
  */
 export function jsonSchemaToTypeBox(schema: JsonSchemaObject): TSchema {
   if (schema.type === "object" || schema.properties !== undefined) {
