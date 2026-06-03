@@ -22,7 +22,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional, overload
 
-from contracts.schema import Bar, Fill, Instrument, NewsItem, OptionRight, Timeframe
+from contracts.schema import (
+    Bar,
+    Fill,
+    Instrument,
+    NewsItem,
+    OptionRight,
+    Side,
+    Timeframe,
+)
 from loguru import logger
 from sqlalchemy import select
 
@@ -229,8 +237,6 @@ def _news_row_to_dto(row: NewsRow) -> NewsItem:
 
 
 def _fill_row_to_dto(row: FillRow) -> Fill:
-    from contracts.schema import Fill, Side
-
     return Fill(
         fill_id=row.fill_id,
         broker_order_id=row.broker_order_id,
