@@ -15,3 +15,9 @@ guardrails:
   max_position_size_dollars: 50000.0
   max_order_size_dollars: 10000.0
   kill_switch_enabled: true
+
+infra:
+  bus:
+    url: redis://localhost:6379/0
+    stream: trader:events
+    maxlen: 100000

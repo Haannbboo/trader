@@ -52,8 +52,8 @@ agent:
 # sane for dev; uncomment and tweak for prod. `bus.url` is the only field
 # callers need to set to point at a real Redis — `just up` starts one on
 # localhost:6379.
-# infra:
-#   bus:
-#     url: redis://localhost:6379/0
-#     stream: trader:events
-#     maxlen: 100000
+infra:
+  bus:
+    url: redis://localhost:6379/0
+    stream: trader:events
+    maxlen: 100000
