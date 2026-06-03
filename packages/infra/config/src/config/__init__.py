@@ -135,6 +135,27 @@ class AdaptersSettings(BaseModel):
     account: list[SourceSettings] = []
 
 
+# ---------------------------------------------------------------------------
+# infra — non-adapter infrastructure settings (bus, persistence, ...).
+# Each sub-section is its own model so adding a new infra component is a
+# one-class change.
+# ---------------------------------------------------------------------------
+class BusSettings(BaseModel):
+    """Settings consumed by the event-bus implementation (RedisStreamBus today,
+    maybe others later). `url` is the connection string passed to
+    `redis.asyncio.from_url(...)`; `stream` and `maxlen` mirror the constructor
+    kwargs of `RedisStreamBus` so the config and the runtime signature stay
+    in lockstep."""
+
+    url: Optional[str] = None
+    stream: str = "trader:events"
+    maxlen: Optional[int] = 100_000
+
+
+class InfraSettings(BaseModel):
+    bus: BusSettings = Field(default_factory=BusSettings)
+
+
 class Settings(BaseModel):
     """Refined Pydantic schema mapping exactly to config/*.yaml structures."""
 
@@ -144,6 +165,7 @@ class Settings(BaseModel):
     features: dict[str, list[SourceSettings]] = Field(default_factory=dict)
     guardrails: dict[str, Any] = Field(default_factory=dict)
     agent: dict[str, Any] = Field(default_factory=dict)
+    infra: InfraSettings = Field(default_factory=InfraSettings)
 
 
 # ---------------------------------------------------------------------------

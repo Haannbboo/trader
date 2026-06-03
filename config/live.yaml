@@ -47,3 +47,13 @@ guardrails:
 agent:
   strategy: trend_following_agent
   react_loop_interval_seconds: 5.0
+
+# Non-adapter infrastructure (event bus, persistence, ...). The defaults are
+# sane for dev; uncomment and tweak for prod. `bus.url` is the only field
+# callers need to set to point at a real Redis — `just up` starts one on
+# localhost:6379.
+# infra:
+#   bus:
+#     url: redis://localhost:6379/0
+#     stream: trader:events
+#     maxlen: 100000
