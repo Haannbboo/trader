@@ -295,3 +295,94 @@ async def test_fetch_news_start_after_end_returns_empty(tmp_db: Database) -> Non
     await _write_news(tmp_db, [_news_event("a", _utc(2026, 1, 1))])
     repo = Repository(tmp_db)
     assert await repo.fetch_news(start=_utc(2026, 1, 31), end=_utc(2026, 1, 1)) == []
+
+
+# --- fetch_fills ------------------------------------------------------------
+
+
+def _fill_event(fill_id: str, ts: datetime, broker_order_id: str = "bo-1") -> Event:
+    from contracts.schema import Fill, Side
+
+    f = Fill(
+        fill_id=fill_id, broker_order_id=broker_order_id,
+        instrument=Instrument(symbol="AAPL", asset_class=AssetClass.EQUITY),
+        side=Side.BUY, quantity=Decimal("10"), price=Decimal("150.5"),
+        ts_event=ts, fee=Decimal("1"),
+    )
+    return Event(type=EventType.FILL, source="test", payload=f, ts_event=ts)
+
+
+async def _write_fills(db: Database, events: list[Event]) -> None:
+    from persistence.writer import PersistenceWriter
+
+    w = PersistenceWriter(bus=_NullBus(), db=db)  # type: ignore[arg-type]
+    for ev in events:
+        await w._handle(ev)
+
+
+async def test_fetch_fills_empty_returns_empty_list(tmp_db: Database) -> None:
+    repo = Repository(tmp_db)
+    assert await repo.fetch_fills() == []
+
+
+async def test_fetch_fills_returns_all_in_range_ordered(tmp_db: Database) -> None:
+    ts1, ts2, ts3 = _utc(2026, 1, 1), _utc(2026, 1, 2), _utc(2026, 1, 3)
+    await _write_fills(tmp_db, [
+        _fill_event("f1", ts1),
+        _fill_event("f2", ts2),
+        _fill_event("f3", ts3),
+    ])
+    repo = Repository(tmp_db)
+    fills = await repo.fetch_fills(
+        start=_utc(2026, 1, 1), end=_utc(2026, 1, 31),
+    )
+    assert [f.fill_id for f in fills] == ["f1", "f2", "f3"]
+
+
+async def test_fetch_fills_filters_by_broker_order_id(tmp_db: Database) -> None:
+    ts = _utc(2026, 1, 1)
+    await _write_fills(tmp_db, [
+        _fill_event("f1", ts, broker_order_id="bo-1"),
+        _fill_event("f2", ts, broker_order_id="bo-2"),
+        _fill_event("f3", ts, broker_order_id="bo-1"),
+    ])
+    repo = Repository(tmp_db)
+    fills = await repo.fetch_fills(broker_order_id="bo-1")
+    assert {f.fill_id for f in fills} == {"f1", "f3"}
+
+
+async def test_fetch_fills_round_trips_option_instrument(tmp_db: Database) -> None:
+    """An option fill's flattened columns must re-inflate losslessly."""
+    from contracts.schema import Fill, Side
+
+    ts = _utc(2026, 1, 1)
+    inst = Instrument(
+        symbol="SPX", asset_class=AssetClass.OPTION,
+        expiry=_utc(2026, 6, 1), strike=Decimal("5000"),
+        right=OptionRight.CALL, multiplier=Decimal(100),
+    )
+    f = Fill(
+        fill_id="f-opt", broker_order_id="bo-1",
+        instrument=inst, side=Side.SELL,
+        quantity=Decimal("2"), price=Decimal("15.5"),
+        ts_event=ts, fee=Decimal("0.5"),
+    )
+    await _write_fills(tmp_db, [
+        Event(type=EventType.FILL, source="test", payload=f, ts_event=ts)
+    ])
+    repo = Repository(tmp_db)
+    fills = await repo.fetch_fills()
+    assert len(fills) == 1
+    out_inst = fills[0].instrument
+    assert out_inst.symbol == "SPX"
+    assert out_inst.asset_class == AssetClass.OPTION
+    assert out_inst.expiry == _utc(2026, 6, 1)
+    assert out_inst.strike == Decimal("5000")
+    assert out_inst.right == OptionRight.CALL
+    assert out_inst.multiplier == Decimal(100)
+
+
+async def test_fetch_fills_start_after_end_returns_empty(tmp_db: Database) -> None:
+    await _write_fills(tmp_db, [_fill_event("f1", _utc(2026, 1, 1))])
+    repo = Repository(tmp_db)
+    assert await repo.fetch_fills(start=_utc(2026, 1, 31), end=_utc(2026, 1, 1)) == []
