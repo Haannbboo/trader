@@ -153,6 +153,10 @@ class BusSettings(BaseModel):
 
 
 class InfraSettings(BaseModel):
+    """Non-adapter infrastructure (event bus, persistence, observability, ...).
+    Each sub-section is its own model so adding a new infra component is a
+    one-class change."""
+
     bus: BusSettings = Field(default_factory=BusSettings)
 
 

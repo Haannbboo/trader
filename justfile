@@ -26,7 +26,10 @@ format:
     uv run black packages/ apps/ tests/
     uv run ruff check --fix packages/ apps/ tests/
 
-# Run the smoke app (vertical slice)
+# Run the smoke app (vertical slice).
+# Note: config/smoke.yaml sets infra.bus.url, so this requires a Redis to be
+# reachable — `just up` first. Comment out the url in config/smoke.yaml if
+# you want to run the smoke offline (it will fall back to InProcessBus).
 smoke:
     uv run python apps/smoke/main.py
 

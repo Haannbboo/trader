@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import AsyncIterator, List
+from typing import List
 
 import fakeredis
 import pytest
@@ -63,19 +63,6 @@ def _bar_event(symbol: str = "AAPL", source: str = "test") -> Event:
         ),
         ts_event=ts,
     )
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-@pytest.fixture
-def bus() -> AsyncIterator[RedisStreamBus]:
-    """A started bus backed by fakeredis, with teardown on fixture exit."""
-    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    b = RedisStreamBus(client=client, stream="test:events")
-    yield b
-    # Sync teardown — bus.stop() is async, so run it explicitly in the test
-    # if needed. We expose a helper for tests to use.
 
 
 # ---------------------------------------------------------------------------

@@ -144,6 +144,9 @@ class RedisStreamBus:
         subscription: Subscription,
         group: Optional[str],
     ) -> AsyncIterator[Event]:
+        """Inner generator. Sets up the consumer group once, then loops on
+        XREAD/XREADGROUP, deserializing + filtering entries and yielding the
+        ones that match `subscription`."""
         client = self._client
         stream = self._stream
 
@@ -217,6 +220,8 @@ class RedisStreamBus:
 
 
 def _matches(event: Event, sub: Subscription) -> bool:
+    """True iff `event` passes the subscription filter. Mirrors
+    InProcessBus._matches so the two implementations are interchangeable."""
     if sub.event_types and event.type not in sub.event_types:
         return False
     if sub.sources and event.source not in sub.sources:
@@ -255,12 +260,17 @@ def _deserialize_event(raw: Any) -> Event:
 
 def _decode_str(value: Any) -> Any:
     """Coerce a possibly-bytes value to str. Pass-through for everything else."""
+    """Coerce a possibly-bytes value to str. Pass-through for everything else."""
     if isinstance(value, bytes):
         return value.decode("utf-8")
     return value
 
 
 def _field(fields: dict, key: str) -> Any:
+    """Look up `key` in a field dict that may be bytes- or str-keyed.
+
+    fakeredis and real redis-py disagree about whether XREAD honors
+    `decode_responses=True` on stream fields, so we tolerate both."""
     """Look up `key` in a field dict that may be bytes- or str-keyed.
 
     fakeredis and real redis-py disagree about whether XREAD honors
