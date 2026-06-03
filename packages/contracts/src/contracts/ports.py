@@ -13,6 +13,7 @@ from contracts.schema import (
     Event,
     EventType,
     FeatureValue,
+    Fill,
     Instrument,
     NewsItem,
     Order,
@@ -220,3 +221,44 @@ class FeatureService(Protocol):
         instrument: Optional[Instrument] = None,
     ) -> FeatureValue: ...
     def subscribe(self, features: list[str]) -> AsyncIterator[Event]: ...
+
+
+# ---------------------------------------------------------------------------
+# Persistence — read face of the storage layer. Implemented by the
+# Repository in packages/infra/persistence. Services depend on this Protocol,
+# not on Repository directly, so the storage backend is swappable.
+# ---------------------------------------------------------------------------
+@runtime_checkable
+class HistoryStore(Protocol):
+    """Read-only access to stored raw facts (bars, news, fills).
+
+    Returned values are schema DTOs (frozen pydantic), never ORM rows — the
+    boundary the persistence package's docstring already states.
+
+    Empty result sets return []. Connection / pool errors propagate natively
+    (services may retry); unrecoverable data-shape problems raise
+    contracts.errors.PersistenceError.
+    """
+
+    async def fetch_bars(
+        self,
+        instrument: Instrument,
+        timeframe: Timeframe,
+        start: datetime,
+        end: datetime,
+    ) -> list[Bar]: ...
+
+    async def fetch_news(
+        self,
+        *,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+    ) -> list[NewsItem]: ...
+
+    async def fetch_fills(
+        self,
+        *,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        broker_order_id: Optional[str] = None,
+    ) -> list[Fill]: ...
