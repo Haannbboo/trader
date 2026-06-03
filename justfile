@@ -45,3 +45,12 @@ cli *args:
 # Drive a one-shot Pi Agent against the live gateway (apps/live must be running)
 agent *args:
     cd apps/agent && pnpm start -- {{args}}
+
+# Start local infrastructure (Redis) in the background; waits until healthy
+up:
+    docker compose -f deploy/compose.yaml up -d --wait
+    @echo "Redis is ready on redis://localhost:6379/0"
+
+# Stop local infrastructure
+down:
+    docker compose -f deploy/compose.yaml down
