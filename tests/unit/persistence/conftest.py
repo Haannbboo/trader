@@ -7,10 +7,10 @@ The Database is created against a file-backed SQLite in pytest's `tmp_path`
     connection-visibility quirks under concurrent sessions).
   - Connection pool behavior is exercised as it will be in production.
 """
+
 from __future__ import annotations
 
 import pytest_asyncio
-
 from persistence.engine import Database
 
 

@@ -10,8 +10,12 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from persistence.models import Base
 
@@ -20,9 +24,8 @@ class Database:
     def __init__(self, dsn: str) -> None:
         """dsn injected by config, e.g. postgresql+asyncpg://user:pw@localhost/ta."""
         self._engine: AsyncEngine = create_async_engine(dsn, pool_pre_ping=True)
-        self._sessionmaker = sessionmaker(
+        self._sessionmaker: async_sessionmaker[AsyncSession] = async_sessionmaker(
             self._engine,
-            class_=AsyncSession,
             expire_on_commit=False,
         )
 

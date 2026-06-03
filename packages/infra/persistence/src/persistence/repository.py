@@ -20,7 +20,7 @@ intentionally out of scope for this iteration; see ADR-0003 and the
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, overload
 
 from contracts.schema import Bar, Fill, Instrument, NewsItem, OptionRight, Timeframe
 from loguru import logger
@@ -28,6 +28,14 @@ from sqlalchemy import select
 
 from persistence.engine import Database
 from persistence.models import BarRow, FillRow, NewsRow
+
+
+@overload
+def _utc(dt: datetime) -> datetime: ...
+
+
+@overload
+def _utc(dt: Optional[datetime]) -> Optional[datetime]: ...
 
 
 def _utc(dt: Optional[datetime]) -> Optional[datetime]:

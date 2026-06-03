@@ -9,6 +9,7 @@ Configure via a DSN (e.g. "postgresql+asyncpg://..." for prod,
 "sqlite+aiosqlite:///path/to.db" for dev/test). Connection management lives in
 Database; the writer and repository are stateless wrappers around it.
 """
+
 from persistence.engine import Database
 from persistence.repository import Repository
 from persistence.writer import PersistenceWriter

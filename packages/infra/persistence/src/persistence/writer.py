@@ -15,11 +15,12 @@ service.start() and gateway.serve(). It shares the same bus + loop.
 
 from __future__ import annotations
 
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from typing import Any
 
 from contracts.ports import Bus, Subscription
 from contracts.schema import Bar, Event, EventType, Fill, NewsItem
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from persistence.engine import Database
 from persistence.models import BarRow, FillRow, NewsRow
@@ -71,9 +72,16 @@ class PersistenceWriter:
         row_type = type(row)
         values = {c.name: getattr(row, c.name) for c in row_type.__table__.columns}
 
+        # pg_insert and sqlite_insert return different Insert subclasses; Session.execute
+        # accepts either, so we type the local as Any to keep the dialect switch readable.
+        stmt: Any
         if self._db.dialect_name == "postgresql":
-            stmt = pg_insert(row_type).values(**values).on_conflict_do_nothing(
-                index_elements=list(row_type.__table__.primary_key.columns)
+            stmt = (
+                pg_insert(row_type)
+                .values(**values)
+                .on_conflict_do_nothing(
+                    index_elements=list(row_type.__table__.primary_key.columns)
+                )
             )
         else:  # sqlite (dev/test)
             stmt = sqlite_insert(row_type).values(**values).on_conflict_do_nothing()

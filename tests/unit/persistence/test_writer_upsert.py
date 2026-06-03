@@ -104,7 +104,9 @@ async def test_upsert_idempotent_on_postgres() -> None:
         await db.close()
 
 
-async def test_upsert_does_not_swallow_non_duplicates_on_sqlite(tmp_db: Database) -> None:
+async def test_upsert_does_not_swallow_non_duplicates_on_sqlite(
+    tmp_db: Database,
+) -> None:
     """Upsert must dedupe identical PKs but still persist DISTINCT events.
 
     Guards against an over-eager dedupe (e.g. WHERE NOT EXISTS on the wrong
