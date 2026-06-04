@@ -73,7 +73,7 @@ async def test_upsert_idempotent_on_sqlite(tmp_db: Database) -> None:
 
 PG_DSN = os.environ.get("TRADER_TEST_DSN", "")
 needs_pg = pytest.mark.skipif(
-    "postgresql" not in PG_DSN,
+    not PG_DSN.startswith("postgresql+asyncpg://"),
     reason="set TRADER_TEST_DSN to a postgresql+asyncpg DSN to enable",
 )
 
@@ -95,12 +95,30 @@ async def test_upsert_idempotent_on_postgres() -> None:
         await writer._handle(ev)
 
         async with db.session() as s:
-            rows = (await s.execute(select(BarRow))).scalars().all()
+            rows = (
+                (
+                    await s.execute(
+                        select(BarRow).where(
+                            BarRow.instrument_key == "AAPL|equity",
+                            BarRow.timeframe == "1d",
+                            BarRow.ts_open == target_ts,
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
 
         assert len(rows) == 1
     finally:
         async with db.session() as s:
-            await s.execute(delete(BarRow).where(BarRow.ts_open == target_ts))
+            await s.execute(
+                delete(BarRow).where(
+                    BarRow.instrument_key == "AAPL|equity",
+                    BarRow.timeframe == "1d",
+                    BarRow.ts_open == target_ts,
+                )
+            )
         await db.close()
 
 

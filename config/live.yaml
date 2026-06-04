@@ -60,5 +60,6 @@ infra:
     maxlen: 100000
 
   persistence:
-    dsn: sqlite+aiosqlite:///./live.db
-    enabled: true
+    # Operators must opt in and provide a production database DSN in deployment-specific configs.
+    dsn: ""
+    enabled: false

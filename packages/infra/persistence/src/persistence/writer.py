@@ -15,10 +15,12 @@ service.start() and gateway.serve(). It shares the same bus + loop.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from contracts.ports import Bus, Subscription
 from contracts.schema import Bar, Event, EventType, Fill, NewsItem
+from loguru import logger
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -43,7 +45,12 @@ class PersistenceWriter:
         Runs forever (until cancelled on shutdown)."""
         sub = Subscription(event_types=_PERSISTED)
         async for ev in self._bus.subscribe(sub, group="persistence"):
-            await self._handle(ev)
+            try:
+                await self._handle(ev)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Failed to write event {} to DB", ev)
 
     async def _handle(self, ev: Event) -> None:
         """Route one event to the right row mapper + dialect-aware upsert.

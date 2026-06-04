@@ -37,10 +37,13 @@ for _p in (_root_dir / "packages").glob("**/src"):
 import asyncio
 import os
 import signal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from account import AccountService
 from bus import InProcessBus
+
+if TYPE_CHECKING:
+    from bus import RedisStreamBus
 from feature import FeatureService
 from feature.runtime import FeatureRuntime
 from guardrail import Guardrail
@@ -116,6 +119,28 @@ def _build_guardrail(cfg: AppConfig) -> Guardrail:
     return Guardrail(rules=[])
 
 
+def _build_bus(cfg: AppConfig) -> InProcessBus | RedisStreamBus:
+    """If `infra.bus.url` is set, use RedisStreamBus (durability + multi-process
+    fan-out); otherwise fall back to InProcessBus. The downstream service and
+    tools see the same Bus protocol either way."""
+    bus_cfg = cfg.settings.infra.bus
+    if bus_cfg.url:
+        from bus import RedisStreamBus
+
+        logger.info(
+            "bus: RedisStreamBus (url={}, stream={})",
+            bus_cfg.url,
+            bus_cfg.stream,
+        )
+        return RedisStreamBus(
+            redis_url=bus_cfg.url,
+            stream=bus_cfg.stream,
+            maxlen=bus_cfg.maxlen,
+        )
+    logger.info("bus: InProcessBus")
+    return InProcessBus()
+
+
 async def _try_start(service: Any, label: str) -> bool:
     """Start a service; if its start() is still a NotImplementedError stub,
     log a warning and return False so the caller can drop it from the tool
@@ -150,7 +175,7 @@ async def run(config_path: str = "config/live.yaml") -> None:
     discover(_adapter_packages(cfg) + _feature_packages(cfg))
 
     # 2. bus
-    bus = InProcessBus()
+    bus = _build_bus(cfg)
     await bus.start()
 
     # 2b. persistence (optional — live can run without storage; the writer
@@ -175,6 +200,12 @@ async def run(config_path: str = "config/live.yaml") -> None:
             _psettings.enabled,
             bool(_psettings.dsn),
         )
+
+    writer_task = None
+    if writer is not None:
+        writer_task = asyncio.create_task(writer.run(), name="persistence-writer")
+        # Yield to the event loop so the writer task runs and registers its subscription immediately
+        await asyncio.sleep(0)
 
     # 3. sources + guardrail
     market_sources = registry.build_sources("market", cfg.enabled_sources("market"))
@@ -280,11 +311,6 @@ async def run(config_path: str = "config/live.yaml") -> None:
         name="agent-gateway",
     )
     stop_task = asyncio.create_task(stop_event.wait(), name="stop-signal")
-    writer_task = (
-        asyncio.create_task(writer.run(), name="persistence-writer")
-        if writer is not None
-        else None
-    )
 
     # NOTE: we use asyncio.wait + FIRST_COMPLETED, not asyncio.gather.
     # `gather` would wait for ALL tasks to finish and return a list of
@@ -335,10 +361,12 @@ async def run(config_path: str = "config/live.yaml") -> None:
         exc = serve_task.exception()
         if exc is not None:
             logger.exception("gateway serve crashed: {}", exc)
+            raise exc
     if writer_task is not None and writer_task in done:
         exc = writer_task.exception()
         if exc is not None:
             logger.exception("persistence writer crashed: {}", exc)
+            raise exc
 
     # Stop services in reverse start order: agent-facing first, account last so
     # the order path stays alive until everything reading from it is gone.

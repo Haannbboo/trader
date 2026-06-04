@@ -34,11 +34,13 @@ def __getattr__(name: str):
     if name == "RedisStreamBus":
         try:
             from bus.redis_streams import RedisStreamBus
-        except ImportError as exc:
-            raise ImportError(
-                "RedisStreamBus requires the `redis` package. "
-                "Install with `uv pip install -e .[redis]`."
-            ) from exc
+        except ModuleNotFoundError as exc:
+            if exc.name in ("redis", "redis.asyncio"):
+                raise ImportError(
+                    "RedisStreamBus requires the `redis` package. "
+                    "Install with `uv pip install -e .[redis]`."
+                ) from exc
+            raise
         # Cache on the module so subsequent accesses don't re-import.
         globals()["RedisStreamBus"] = RedisStreamBus
         return RedisStreamBus

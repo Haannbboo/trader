@@ -34,9 +34,13 @@ for p in (root_dir / "packages").glob("**/src"):
     sys.path.insert(0, str(p))
 
 import asyncio
+from typing import TYPE_CHECKING
 
 from account import AccountService  # pyrefly: ignore [missing-import]
-from bus import InProcessBus, RedisStreamBus  # pyrefly: ignore [missing-import]
+from bus import InProcessBus  # pyrefly: ignore [missing-import]
+
+if TYPE_CHECKING:
+    from bus import RedisStreamBus
 from contracts import AccountSourcePort
 from guardrail import Guardrail  # pyrefly: ignore [missing-import]
 from persistence import (
@@ -70,6 +74,8 @@ def build_bus(cfg: AppConfig) -> InProcessBus | RedisStreamBus:
     tools see the same Bus protocol either way."""
     bus_cfg = cfg.settings.infra.bus
     if bus_cfg.url:
+        from bus import RedisStreamBus
+
         print(f"  [bus] RedisStreamBus → {bus_cfg.url} (stream={bus_cfg.stream!r})")
         return RedisStreamBus(
             redis_url=bus_cfg.url,
@@ -116,14 +122,17 @@ async def run(mode: str) -> None:
         print("  [persistence] disabled (no dsn or enabled=false)")
 
     await bus.start()
-    await service.start()
-    print("health:", await adapter.health())
 
     # The writer runs as a background task. It subscribes to BAR/NEWS/FILL on
     # the bus and writes each event to the DB. Cancelled at shutdown.
+    # Scheduled early so the subscription is active before the service starts.
     writer_task: asyncio.Task[None] | None = None
     if writer is not None:
         writer_task = asyncio.create_task(writer.run(), name="persistence-writer")
+        await asyncio.sleep(0)
+
+    await service.start()
+    print("health:", await adapter.health())
 
     stop = asyncio.Event()
     watcher = asyncio.create_task(bus_watcher(service, stop))
@@ -163,7 +172,18 @@ async def run(mode: str) -> None:
     stop.set()
     watcher.cancel()
 
-    # (c) show what the writer captured — reads via the public Repository
+    # (c) drain/stop the writer first so all events are flushed to the DB before reading
+    if writer_task is not None:
+        writer_task.cancel()
+        try:
+            await writer_task
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            print(f"persistence writer task failed: {e}")
+            raise
+
+    # (d) show what the writer captured — reads via the public Repository
     # so the smoke is also an end-to-end check of the read face.
     if db is not None:
         repo = Repository(db)
@@ -175,16 +195,7 @@ async def run(mode: str) -> None:
                 f"symbol={f.instrument.symbol} qty={f.quantity} price={f.price}"
             )
 
-    # shutdown order: writer first (cancel the bus consumer), then service,
-    # then bus, then db. Cancelling the writer before the bus is closed
-    # means the writer's in-flight `bus.subscribe` raises CancelledError
-    # cleanly instead of ConnectionError.
-    if writer_task is not None:
-        writer_task.cancel()
-        try:
-            await writer_task
-        except (asyncio.CancelledError, Exception):
-            pass
+    # shutdown remaining services
     await service.stop()
     await bus.stop()
     if db is not None:
