@@ -13,6 +13,7 @@ from contracts.schema import (
     Event,
     EventType,
     FeatureValue,
+    Fill,
     Instrument,
     NewsItem,
     Order,
@@ -120,6 +121,8 @@ class AccountSourcePort(SourcePort, Protocol):
 # ---------------------------------------------------------------------------
 @runtime_checkable
 class Bus(Protocol):
+    async def start(self) -> None: ...
+    async def stop(self) -> None: ...
     async def publish(self, event: Event) -> None: ...
 
     def subscribe(
@@ -127,6 +130,13 @@ class Bus(Protocol):
         subscription: Subscription,
         *,
         group: Optional[str] = None,
+    ) -> AsyncIterator[Event]: ...
+
+    def replay(
+        self,
+        subscription: Subscription,
+        start: datetime,
+        end: datetime,
     ) -> AsyncIterator[Event]: ...
 
     # `group`: durable buses use it for consumer-group fan-out / replay.
@@ -220,3 +230,44 @@ class FeatureService(Protocol):
         instrument: Optional[Instrument] = None,
     ) -> FeatureValue: ...
     def subscribe(self, features: list[str]) -> AsyncIterator[Event]: ...
+
+
+# ---------------------------------------------------------------------------
+# Persistence — read face of the storage layer. Implemented by the
+# Repository in packages/infra/persistence. Services depend on this Protocol,
+# not on Repository directly, so the storage backend is swappable.
+# ---------------------------------------------------------------------------
+@runtime_checkable
+class HistoryStore(Protocol):
+    """Read-only access to stored raw facts (bars, news, fills).
+
+    Returned values are schema DTOs (frozen pydantic), never ORM rows — the
+    boundary the persistence package's docstring already states.
+
+    Empty result sets return []. Connection / pool errors propagate natively
+    (services may retry); unrecoverable data-shape problems raise
+    contracts.errors.PersistenceError.
+    """
+
+    async def fetch_bars(
+        self,
+        instrument: Instrument,
+        timeframe: Timeframe,
+        start: datetime,
+        end: datetime,
+    ) -> list[Bar]: ...
+
+    async def fetch_news(
+        self,
+        *,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+    ) -> list[NewsItem]: ...
+
+    async def fetch_fills(
+        self,
+        *,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        broker_order_id: Optional[str] = None,
+    ) -> list[Fill]: ...

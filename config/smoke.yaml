@@ -18,6 +18,12 @@ guardrails:
 
 infra:
   bus:
-    url: redis://localhost:6379/0
+    # Uncomment to drive the smoke through RedisStreamBus (requires `just up`
+    # to be running). Default InProcessBus is the offline-friendly choice and
+    # is what the smoke relies on for the persistence round-trip demo.
+    # url: redis://localhost:6379/0
     stream: trader:events
     maxlen: 100000
+  persistence:
+    dsn: sqlite+aiosqlite:///./smoke.db
+    enabled: true

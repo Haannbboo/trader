@@ -11,7 +11,7 @@ import asyncio
 import json
 import uuid
 from datetime import datetime
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator, Optional, cast
 
 import redis.asyncio
 from contracts.ports import Subscription
@@ -22,7 +22,6 @@ from contracts.schema import (
     EventType,
     FeatureValue,
     Fill,
-    Instrument,
     NewsItem,
     Order,
     Position,
@@ -30,6 +29,8 @@ from contracts.schema import (
 )
 from loguru import logger
 from redis.exceptions import ResponseError
+
+from ._filters import matches_subscription
 
 # Map EventType -> payload class. Events are deserialized into the right typed
 # payload here, because Pydantic's Generic[PayloadT] carries no runtime type
@@ -75,7 +76,7 @@ class RedisStreamBus:
         if redis_url is not None and client is not None:
             raise ValueError("pass redis_url or client, not both")
         self.redis_url = redis_url
-        self._client: Optional[Any] = client
+        self._client: redis.asyncio.Redis | None = client
         self._stream = stream
         self._maxlen = maxlen
         self._owned_client = client is None  # True means we should aclose on stop
@@ -85,6 +86,9 @@ class RedisStreamBus:
             # decode_responses=True so XREAD/XRANGE fields come back as str
             # instead of bytes — keeps the deserialize path and any downstream
             # consumers from having to think about encoding.
+            assert (
+                self.redis_url is not None
+            ), "redis_url is required when client is not pre-provided"
             self._client = redis.asyncio.from_url(self.redis_url, decode_responses=True)
             self._owned_client = True
         logger.info(f"RedisStreamBus started (stream={self._stream}).")
@@ -146,6 +150,7 @@ class RedisStreamBus:
         """Inner generator. Sets up the consumer group once, then loops on
         XREAD/XREADGROUP, deserializing + filtering entries and yielding the
         ones that match `subscription`."""
+        assert self._client is not None, "RedisStreamBus is not started"
         client = self._client
         stream = self._stream
 
@@ -168,13 +173,17 @@ class RedisStreamBus:
         while True:
             try:
                 if group is not None:
-                    msgs = await client.xreadgroup(
+                    assert consumer is not None
+                    raw_msgs = await client.xreadgroup(
                         group, consumer, {stream: ">"}, count=_BATCH, block=_BLOCK_MS
                     )
                 else:
-                    msgs = await client.xread(
+                    raw_msgs = await client.xread(
                         {stream: last_id}, count=_BATCH, block=_BLOCK_MS
                     )
+                # Cast to list[tuple] to override redis-py's broad XReadResponse type (which
+                # includes dict shapes that trigger Pyrefly dict-key unpacking errors).
+                msgs = cast("list[tuple[str, list[tuple[str, dict]]]]", raw_msgs)
             except Exception:
                 logger.exception("RedisStreamBus subscribe: xread failed; aborting")
                 return
@@ -197,7 +206,7 @@ class RedisStreamBus:
                             f"RedisStreamBus: failed to deserialize entry {entry_id}; skipping"
                         )
                         continue
-                    if not _matches(event, subscription):
+                    if not matches_subscription(event, subscription):
                         continue
                     yield event
 
@@ -215,29 +224,7 @@ class RedisStreamBus:
     # ------------------------------------------------------------------
     @staticmethod
     def _matches(event: Event, sub: Subscription) -> bool:
-        return _matches(event, sub)
-
-
-def _matches(event: Event, sub: Subscription) -> bool:
-    """True iff `event` passes the subscription filter. Mirrors
-    InProcessBus._matches so the two implementations are interchangeable."""
-    if sub.event_types and event.type not in sub.event_types:
-        return False
-    if sub.sources and event.source not in sub.sources:
-        return False
-    if sub.instruments:
-        payload = getattr(event, "payload", None)
-        event_inst_key: Optional[str] = None
-        if payload is not None:
-            inst = getattr(payload, "instrument", None)
-            if isinstance(inst, Instrument):
-                event_inst_key = inst.key
-        if event_inst_key is None:
-            return False
-        sub_keys = {inst.key for inst in sub.instruments}
-        if event_inst_key not in sub_keys:
-            return False
-    return True
+        return matches_subscription(event, sub)
 
 
 def _deserialize_event(raw: Any) -> Event:
@@ -253,7 +240,7 @@ def _deserialize_event(raw: Any) -> Event:
     payload_cls = _PAYLOAD_TYPE_FOR_EVENT.get(event_type)
     payload_field = data.get("payload")
     if payload_cls is not None and isinstance(payload_field, dict):
-        data["payload"] = payload_cls.model_validate(payload_field)
+        data["payload"] = payload_cls.model_validate(payload_field)  # type: ignore[attr-defined]
     return Event.model_validate(data)
 
 

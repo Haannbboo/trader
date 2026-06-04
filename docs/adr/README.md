@@ -9,3 +9,4 @@ This directory contains records of critical design choices and architectural dec
 * [ADR-0003: Time-Series Event Ingestion](ts_event-ingest.md)
 * [ADR-0004: Protocol-based Contract Enforcement](Protocol.md)
 * [ADR-0005: Decoupled Plugin Registry Core](registry.md)
+* [ADR-0006: Persistence Read Face](0006-persistence-read-face.md)

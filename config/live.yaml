@@ -58,3 +58,8 @@ infra:
     # url: redis://your-prod-redis:6379/0
     stream: trader:events
     maxlen: 100000
+
+  persistence:
+    # Operators must opt in and provide a production database DSN in deployment-specific configs.
+    dsn: ""
+    enabled: false
