@@ -39,6 +39,11 @@ from account import AccountService  # pyrefly: ignore [missing-import]
 from bus import InProcessBus, RedisStreamBus  # pyrefly: ignore [missing-import]
 from contracts import AccountSourcePort
 from guardrail import Guardrail  # pyrefly: ignore [missing-import]
+from persistence import (
+    Database,
+    PersistenceWriter,
+    Repository,
+)  # pyrefly: ignore [missing-import]
 from tools import ToolLayer  # pyrefly: ignore [missing-import]
 
 from apps.smoke.mock_adapter import MockAccountAdapter
@@ -96,9 +101,29 @@ async def run(mode: str) -> None:
     service = AccountService(sources=[adapter], bus=bus, guardrail=guardrail)
     tools = ToolLayer(account=service)
 
+    # Persistence: build Database + Writer from cfg.settings.infra.persistence.
+    # Skipped cleanly when disabled or dsn is empty (so the smoke still runs
+    # without storage if the config drops the block).
+    db: Database | None = None
+    writer: PersistenceWriter | None = None
+    _ps = cfg.settings.infra.persistence
+    if _ps.enabled and _ps.dsn:
+        db = Database(_ps.dsn, echo=_ps.echo)
+        await db.create_all()
+        writer = PersistenceWriter(bus=bus, db=db)
+        print(f"  [persistence] enabled (dialect={db.dialect_name}, echo={_ps.echo})")
+    else:
+        print("  [persistence] disabled (no dsn or enabled=false)")
+
     await bus.start()
     await service.start()
     print("health:", await adapter.health())
+
+    # The writer runs as a background task. It subscribes to BAR/NEWS/FILL on
+    # the bus and writes each event to the DB. Cancelled at shutdown.
+    writer_task: asyncio.Task[None] | None = None
+    if writer is not None:
+        writer_task = asyncio.create_task(writer.run(), name="persistence-writer")
 
     stop = asyncio.Event()
     watcher = asyncio.create_task(bus_watcher(service, stop))
@@ -138,8 +163,32 @@ async def run(mode: str) -> None:
     stop.set()
     watcher.cancel()
 
+    # (c) show what the writer captured — reads via the public Repository
+    # so the smoke is also an end-to-end check of the read face.
+    if db is not None:
+        repo = Repository(db)
+        fills = await repo.fetch_fills()
+        print(f"\n  [persistence] DB has {len(fills)} fill(s):")
+        for f in fills:
+            print(
+                f"    - fill_id={f.fill_id} broker={f.broker_order_id} "
+                f"symbol={f.instrument.symbol} qty={f.quantity} price={f.price}"
+            )
+
+    # shutdown order: writer first (cancel the bus consumer), then service,
+    # then bus, then db. Cancelling the writer before the bus is closed
+    # means the writer's in-flight `bus.subscribe` raises CancelledError
+    # cleanly instead of ConnectionError.
+    if writer_task is not None:
+        writer_task.cancel()
+        try:
+            await writer_task
+        except (asyncio.CancelledError, Exception):
+            pass
     await service.stop()
     await bus.stop()
+    if db is not None:
+        await db.close()
     print("\n=== done ===")
 
 

@@ -152,6 +152,12 @@ logs/
 !tests/fixtures/**/*.json
 !tests/fixtures/**/*.jsonl
 
+# SQLite databases created by the persistence layer at runtime
+# (e.g. live.db, smoke.db when the smoke or live app boots with a
+# sqlite+aiosqlite DSN). The schema is created via Database.create_all();
+# the files themselves are runtime artifacts, not source.
+*.db
+
 # Claude Code per-directory local notes (never checked in)
 CLAUDE.local.md
 
