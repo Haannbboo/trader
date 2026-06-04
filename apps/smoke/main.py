@@ -34,13 +34,9 @@ for p in (root_dir / "packages").glob("**/src"):
     sys.path.insert(0, str(p))
 
 import asyncio
-from typing import TYPE_CHECKING
 
 from account import AccountService  # pyrefly: ignore [missing-import]
-from bus import InProcessBus  # pyrefly: ignore [missing-import]
-
-if TYPE_CHECKING:
-    from bus import RedisStreamBus
+from bus import Bus, InProcessBus  # pyrefly: ignore [missing-import]
 from contracts import AccountSourcePort
 from guardrail import Guardrail  # pyrefly: ignore [missing-import]
 from persistence import (
@@ -68,7 +64,7 @@ def build_adapter(mode: str, cfg: AppConfig) -> AccountSourcePort:
     raise SystemExit(f"unknown mode {mode!r}; use 'mock' or 'alpaca'")
 
 
-def build_bus(cfg: AppConfig) -> InProcessBus | RedisStreamBus:
+def build_bus(cfg: AppConfig) -> Bus:
     """If `infra.bus.url` is set, use RedisStreamBus (durability + multi-process
     fan-out); otherwise fall back to InProcessBus. The downstream service and
     tools see the same Bus protocol either way."""

@@ -6,12 +6,16 @@ in-memory per-subscriber queues. Implements the Bus protocol so RedisStreamsBus
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import AsyncIterator, List, Optional, Tuple
 
 import anyio
+from anyio.streams.memory import MemoryObjectSendStream
 from contracts.ports import Subscription
 from contracts.schema import Event
 from loguru import logger
+
+from ._filters import matches_subscription
 
 
 class InProcessBus:
@@ -22,9 +26,7 @@ class InProcessBus:
     def __init__(self, *, max_queue: int = 10_000) -> None:
         self.max_queue = max_queue
         # List of (subscription, send_stream)
-        self._subscribers: List[
-            Tuple[Subscription, anyio.MemoryObjectSendStream[Event]]
-        ] = []
+        self._subscribers: List[Tuple[Subscription, MemoryObjectSendStream[Event]]] = []
         self._running = False
 
     async def start(self) -> None:
@@ -32,7 +34,15 @@ class InProcessBus:
         logger.info("InProcessBus started.")
 
     async def stop(self) -> None:
-        await self.close()
+        self._running = False
+        # Close all subscriber streams
+        for _, send_stream in self._subscribers:
+            try:
+                send_stream.close()
+            except Exception:
+                pass
+        self._subscribers.clear()
+        logger.info("InProcessBus stopped and all streams terminated.")
 
     async def publish(self, event: Event) -> None:
         """Publishes an event to matching subscriber queues."""
@@ -44,7 +54,7 @@ class InProcessBus:
         self._cleanup_closed_subscribers()
 
         for sub, send_stream in self._subscribers:
-            if self._matches(event, sub):
+            if matches_subscription(event, sub):
                 try:
                     send_stream.send_nowait(event)
                 except anyio.WouldBlock:
@@ -69,47 +79,23 @@ class InProcessBus:
         logger.info(f"Subscribed queue to stream: {subscription}")
         return receive_stream
 
-    async def close(self) -> None:
-        self._running = False
-        # Close all subscriber streams
-        for _, send_stream in self._subscribers:
-            try:
-                send_stream.close()
-            except Exception:
-                pass
-        self._subscribers.clear()
-        logger.info("InProcessBus closed and all streams terminated.")
+    async def replay(
+        self,
+        subscription: Subscription,
+        start: datetime,
+        end: datetime,
+    ) -> AsyncIterator[Event]:
+        """Replay historical events matching `subscription` in [start, end).
 
-    def _matches(self, event: Event, sub: Subscription) -> bool:
-        """Helper to check if an event matches a subscription rule."""
-        # 1. Filter by event_types (if not empty)
-        if sub.event_types:
-            if event.type not in sub.event_types:
-                return False
-
-        # 2. Filter by instruments (if not empty)
-        if sub.instruments:
-            # Extract instrument from event payload
-            payload = getattr(event, "payload", None)
-            event_inst_key = None
-            if payload is not None:
-                instrument = getattr(payload, "instrument", None)
-                if instrument is not None:
-                    event_inst_key = getattr(instrument, "key", None)
-
-            if not event_inst_key:
-                return False
-
-            sub_keys = {inst.key for inst in sub.instruments}
-            if event_inst_key not in sub_keys:
-                return False
-
-        # 3. Filter by sources (if not empty)
-        if sub.sources:
-            if event.source not in sub.sources:
-                return False
-
-        return True
+        STUB: not implemented yet. The live stream only retains what fits
+        under MAXLEN; replay over long horizons needs a backfill store (cold
+        cache of older events). Wire this up after packages/persistence
+        is in place — likely a Redis Stream range scan for the warm window
+        and a separate store (S3 / object storage) for anything older.
+        """
+        raise NotImplementedError
+        if False:
+            yield  # make this an async generator so the AsyncIterator type is honest
 
     def _cleanup_closed_subscribers(self) -> None:
         """Cleans up inactive streams from the list."""

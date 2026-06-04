@@ -37,13 +37,11 @@ for _p in (_root_dir / "packages").glob("**/src"):
 import asyncio
 import os
 import signal
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from account import AccountService
-from bus import InProcessBus
-
-if TYPE_CHECKING:
-    from bus import RedisStreamBus
+from bus import Bus, InProcessBus
+from contracts.ports import AccountSourcePort, MarketSourcePort, NewsSourcePort
 from feature import FeatureService
 from feature.runtime import FeatureRuntime
 from guardrail import Guardrail
@@ -119,7 +117,7 @@ def _build_guardrail(cfg: AppConfig) -> Guardrail:
     return Guardrail(rules=[])
 
 
-def _build_bus(cfg: AppConfig) -> InProcessBus | RedisStreamBus:
+def _build_bus(cfg: AppConfig) -> Bus:
     """If `infra.bus.url` is set, use RedisStreamBus (durability + multi-process
     fan-out); otherwise fall back to InProcessBus. The downstream service and
     tools see the same Bus protocol either way."""
@@ -208,9 +206,15 @@ async def run(config_path: str = "config/live.yaml") -> None:
         await asyncio.sleep(0)
 
     # 3. sources + guardrail
-    market_sources = registry.build_sources("market", cfg.enabled_sources("market"))
-    news_sources = registry.build_sources("news", cfg.enabled_sources("news"))
-    account_sources = registry.build_sources("account", cfg.enabled_sources("account"))
+    market_sources = registry.build_sources(
+        "market", cfg.enabled_sources("market"), as_=MarketSourcePort
+    )
+    news_sources = registry.build_sources(
+        "news", cfg.enabled_sources("news"), as_=NewsSourcePort
+    )
+    account_sources = registry.build_sources(
+        "account", cfg.enabled_sources("account"), as_=AccountSourcePort
+    )
     if not account_sources:
         raise RuntimeError(
             "No enabled account source in config — live cannot boot without "
@@ -381,7 +385,7 @@ async def run(config_path: str = "config/live.yaml") -> None:
         except Exception:
             logger.exception("error stopping {}", name)
 
-    await bus.close()
+    await bus.stop()
     if db is not None:
         await db.close()
         logger.info("persistence: closed")

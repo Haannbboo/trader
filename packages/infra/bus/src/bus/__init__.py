@@ -18,14 +18,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from bus.inprocess import InProcessBus
+from contracts.ports import Bus
+
+from .inprocess import InProcessBus
 
 if TYPE_CHECKING:
     # Mypy / type-checker only — keeps `from bus import RedisStreamBus`
     # typed without forcing the runtime import.
-    from bus.redis_streams import RedisStreamBus
+    from .redis_streams import RedisStreamBus
 
-__all__ = ["InProcessBus", "RedisStreamBus"]
+__all__ = ["InProcessBus", "RedisStreamBus", "Bus"]
 
 
 def __getattr__(name: str):
@@ -33,7 +35,7 @@ def __getattr__(name: str):
     `RedisStreamBus` is actually requested (constructed, not just imported)."""
     if name == "RedisStreamBus":
         try:
-            from bus.redis_streams import RedisStreamBus
+            from .redis_streams import RedisStreamBus
         except ModuleNotFoundError as exc:
             if exc.name in ("redis", "redis.asyncio"):
                 raise ImportError(

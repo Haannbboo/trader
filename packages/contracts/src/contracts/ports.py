@@ -121,6 +121,8 @@ class AccountSourcePort(SourcePort, Protocol):
 # ---------------------------------------------------------------------------
 @runtime_checkable
 class Bus(Protocol):
+    async def start(self) -> None: ...
+    async def stop(self) -> None: ...
     async def publish(self, event: Event) -> None: ...
 
     def subscribe(
@@ -128,6 +130,13 @@ class Bus(Protocol):
         subscription: Subscription,
         *,
         group: Optional[str] = None,
+    ) -> AsyncIterator[Event]: ...
+
+    def replay(
+        self,
+        subscription: Subscription,
+        start: datetime,
+        end: datetime,
     ) -> AsyncIterator[Event]: ...
 
     # `group`: durable buses use it for consumer-group fan-out / replay.

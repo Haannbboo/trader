@@ -30,7 +30,7 @@ import asyncio
 from typing import TYPE_CHECKING, AsyncIterator
 
 from contracts.gateway import DispatchRequest  # pyrefly: ignore [missing-import]
-from contracts.ports import Subscription  # pyrefly: ignore [missing-import]
+from contracts.ports import Bus, Subscription  # pyrefly: ignore [missing-import]
 from contracts.schema import (
     AssetClass,
     EventType,
@@ -43,8 +43,6 @@ from loguru import logger
 
 if TYPE_CHECKING:
     import socket
-
-    from contracts.ports import Bus  # pyrefly: ignore [missing-import]
 
     # ToolLayer is a structural dependency; typed loosely to avoid import coupling.
 
@@ -101,7 +99,7 @@ def _route_uvicorn_logging_to_loguru() -> None:
 
 
 class AgentGateway:
-    def __init__(self, tool_layer, bus: "Bus") -> None:
+    def __init__(self, tool_layer, bus: Bus) -> None:
         """Holds the already-wired ToolLayer + bus. Builds them NOT here — apps/live
         constructs the object graph and injects it, exactly like everything else."""
         self._tools = tool_layer
@@ -274,10 +272,12 @@ class AgentGateway:
             # closing, the bus's matching send stream raises ClosedResourceError
             # on its next send_nowait, which inprocess.py already swallows —
             # so the subscriber row goes effectively deaf.
-            try:
-                stream.close()
-            except Exception:
-                logger.exception("failed to close bus subscription stream")
+            if hasattr(stream, "close"):
+                # RedisStreamBus returns a generator with no close(); only close in-process streams.
+                try:
+                    stream.close()  # type: ignore[attr-defined]
+                except Exception:
+                    logger.exception("failed to close bus subscription stream")
 
     async def serve(
         self,

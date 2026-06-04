@@ -4,9 +4,11 @@ import importlib
 from typing import Any, Callable, Dict, Iterable, Sequence, Type, TypeVar
 
 # Imports pointing to our actual contract schemas
-from contracts.ports import Processor
+from contracts.ports import Processor, SourcePort
 from loguru import logger
 from pydantic import BaseModel
+
+S = TypeVar("S", bound=SourcePort)
 
 T = TypeVar("T")
 Domain = str  # "market" | "news" | "account" | "feature"
@@ -60,15 +62,23 @@ class Registry:
         return list(self._map.get(dom_lower, {}).keys())
 
     def build_sources(
-        self, domain: Domain, enabled: Sequence[SourceConfig]
-    ) -> list[Any]:
+        self,
+        domain: Domain,
+        enabled: Sequence[SourceConfig],
+        *,
+        as_: Type[S],
+    ) -> list[S]:
         """Instantiate the enabled adapters for a domain from config."""
-        instances = []
+        instances: list[S] = []
         for cfg in enabled:
             try:
                 cls = self.get(domain, cfg.name)
                 # Instantiate with parameters if defined, otherwise empty
                 inst = cls(**cfg.params) if cfg.params else cls()
+                if not isinstance(inst, as_):
+                    raise TypeError(
+                        f"Adapter '{cfg.name}' (class {cls.__name__}) does not conform to {as_.__name__}"
+                    )
                 instances.append(inst)
             except Exception as e:
                 logger.error(f"Failed to build adapter {domain}/{cfg.name}: {e}")
