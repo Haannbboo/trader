@@ -152,12 +152,26 @@ class BusSettings(BaseModel):
     maxlen: Optional[int] = 100_000
 
 
+class PersistenceSettings(BaseModel):
+    """Settings consumed by the persistence layer (Database in
+    packages/infra/persistence). `dsn` is the SQLAlchemy async DSN passed to
+    `create_async_engine(...)`; `enabled` mirrors the per-source `enabled`
+    flag in `SourceSettings` so the live composition root can skip wiring
+    the writer / repository when persistence is off. `echo` streams
+    generated SQL to the log — useful in dev, noisy in prod."""
+
+    dsn: Optional[str] = None
+    enabled: bool = True
+    echo: bool = False
+
+
 class InfraSettings(BaseModel):
     """Non-adapter infrastructure (event bus, persistence, observability, ...).
     Each sub-section is its own model so adding a new infra component is a
     one-class change."""
 
     bus: BusSettings = Field(default_factory=BusSettings)
+    persistence: PersistenceSettings = Field(default_factory=PersistenceSettings)
 
 
 class Settings(BaseModel):

@@ -48,6 +48,7 @@ from loguru import logger
 from market import MarketService
 from news import NewsService
 from observability import setup_logging
+from persistence import Database, PersistenceWriter
 from plugins import discover, registry
 from tools import ToolLayer
 
@@ -151,6 +152,29 @@ async def run(config_path: str = "config/live.yaml") -> None:
     # 2. bus
     bus = InProcessBus()
     await bus.start()
+
+    # 2b. persistence (optional — live can run without storage; the writer
+    #     and repository just won't exist). Skipped when disabled or when
+    #     dsn is missing/empty. `create_all()` is dev-only — in prod use
+    #     alembic migrations + the one-time create_hypertable() calls.
+    db: Database | None = None
+    writer: PersistenceWriter | None = None
+    _psettings = cfg.settings.infra.persistence
+    if _psettings.enabled and _psettings.dsn:
+        db = Database(_psettings.dsn, echo=_psettings.echo)
+        await db.create_all()
+        writer = PersistenceWriter(bus=bus, db=db)
+        logger.info(
+            "persistence: enabled (dialect={}, echo={})",
+            db.dialect_name,
+            _psettings.echo,
+        )
+    else:
+        logger.info(
+            "persistence: disabled (enabled={}, dsn_set={})",
+            _psettings.enabled,
+            bool(_psettings.dsn),
+        )
 
     # 3. sources + guardrail
     market_sources = registry.build_sources("market", cfg.enabled_sources("market"))
@@ -256,12 +280,34 @@ async def run(config_path: str = "config/live.yaml") -> None:
         name="agent-gateway",
     )
     stop_task = asyncio.create_task(stop_event.wait(), name="stop-signal")
+    writer_task = (
+        asyncio.create_task(writer.run(), name="persistence-writer")
+        if writer is not None
+        else None
+    )
 
-    # First of {serve_task, stop_task} to finish ends the live loop:
+    # NOTE: we use asyncio.wait + FIRST_COMPLETED, not asyncio.gather.
+    # `gather` would wait for ALL tasks to finish and return a list of
+    # results — wrong semantic. We want "first to finish ends the loop"
+    # (stop signal, gateway crash, or writer crash). The trade-off is
+    # that `wait` does NOT observe task exceptions for you: a task that
+    # raised lands in `done` with an unobserved exception unless we call
+    # `task.exception()` explicitly. The crash-detection block below
+    # (for both serve_task and writer_task) is what surfaces those.
+    # Don't refactor this to gather without re-doing that.
+
+    live_tasks: set[asyncio.Task[Any]] = {serve_task, stop_task}
+    if writer_task is not None:
+        live_tasks.add(writer_task)
+
+    # First of the live_tasks to finish ends the live loop:
     #   serve_task finishing means uvicorn crashed or exited cleanly;
-    #   stop_task finishing means SIGINT/SIGTERM was received.
+    #   stop_task finishing means SIGINT/SIGTERM was received;
+    #   writer_task finishing means the persistence bus consumer raised
+    #     (it runs forever otherwise — cancellation in shutdown is the
+    #     only normal exit).
     done, pending = await asyncio.wait(
-        {serve_task, stop_task},
+        live_tasks,
         return_when=asyncio.FIRST_COMPLETED,
     )
 
@@ -276,10 +322,23 @@ async def run(config_path: str = "config/live.yaml") -> None:
             pass
 
     # Re-raise a serve_task failure so the operator sees why we died.
+    #
+    # WARNING: `asyncio.wait` does NOT auto-observe task exceptions. A task
+    # that raised and was returned in `done` still has an unobserved
+    # exception until either `task.exception()` is called (as below) or
+    # the task object is GC'd. Skipping this block means the crash is
+    # silently swallowed — the only signal would be a "Task exception
+    # was never retrieved" warning at GC time, which is easy to miss
+    # in production logs. Keep this block symmetric: every task added
+    # to `live_tasks` above needs an `in done` check here.
     if serve_task in done:
         exc = serve_task.exception()
         if exc is not None:
             logger.exception("gateway serve crashed: {}", exc)
+    if writer_task is not None and writer_task in done:
+        exc = writer_task.exception()
+        if exc is not None:
+            logger.exception("persistence writer crashed: {}", exc)
 
     # Stop services in reverse start order: agent-facing first, account last so
     # the order path stays alive until everything reading from it is gone.
@@ -295,6 +354,9 @@ async def run(config_path: str = "config/live.yaml") -> None:
             logger.exception("error stopping {}", name)
 
     await bus.close()
+    if db is not None:
+        await db.close()
+        logger.info("persistence: closed")
     logger.info("Trader live: shutdown complete.")
 
 

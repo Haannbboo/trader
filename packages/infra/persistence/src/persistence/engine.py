@@ -21,9 +21,17 @@ from persistence.models import Base
 
 
 class Database:
-    def __init__(self, dsn: str) -> None:
-        """dsn injected by config, e.g. postgresql+asyncpg://user:pw@localhost/ta."""
-        self._engine: AsyncEngine = create_async_engine(dsn, pool_pre_ping=True)
+    def __init__(self, dsn: str, *, echo: bool = False) -> None:
+        """dsn injected by config, e.g. postgresql+asyncpg://user:pw@localhost/ta.
+
+        `echo=True` streams generated SQL to the log via SQLAlchemy's built-in
+        echo — useful in dev, noisy in prod. Default False.
+        """
+        self._engine: AsyncEngine = create_async_engine(
+            dsn,
+            pool_pre_ping=True,
+            echo=echo,
+        )
         self._sessionmaker: async_sessionmaker[AsyncSession] = async_sessionmaker(
             self._engine,
             expire_on_commit=False,

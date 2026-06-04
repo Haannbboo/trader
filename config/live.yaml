@@ -58,3 +58,7 @@ infra:
     # url: redis://your-prod-redis:6379/0
     stream: trader:events
     maxlen: 100000
+
+  persistence:
+    dsn: sqlite+aiosqlite:///./live.db
+    enabled: true
