@@ -6,34 +6,35 @@ mode: live
 # Enabled data adapters and accounts
 adapters:
   # market:
-  #   - name: polygon
+  #   - source: polygon
   #     symbols: ["AAPL", "MSFT", "NVDA", "BTC-USD"]
   #     timeframe: "1m"
-  #   - name: alpaca
+  #   - source: alpaca
+  #     name: stock
   #     symbols: ["SPY", "QQQ"]
   #     timeframe: "1m"
   # news:
-  #   - name: benzinga
+  #   - source: benzinga
   #     categories: ["mergers", "earnings"]
-  #   - name: rss
+  #   - source: rss
   #     urls:
   #       - "https://feeds.finance.yahoo.com/rss/2.0/headline?s=AAPL"
   account:
-    - name: alpaca
+    - source: alpaca
       paper: true
 
 # Active features to compute
 # features:
 # technical:
-#   - name: rsi
+#   - source: rsi
 #     period: 14
-#   - name: returns
+#   - source: returns
 #     lags: [1, 5]
 # crosssectional:
-#   - name: rank
+#   - source: rank
 #     metric: returns_1
 # sentiment:
-#   - name: sentiment
+#   - source: sentiment
 #     model: "finiteautomata/bertweet-base-sentiment-analysis"
 
 # Risk controls and limits

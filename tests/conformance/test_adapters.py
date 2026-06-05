@@ -19,7 +19,8 @@ for module_name in (
 @pytest.mark.parametrize("name", registry.names("market"))
 def test_market_adapters_conformance(name: str) -> None:
     """Verifies that every registered market adapter complies with the MarketSourcePort Protocol."""
-    adapter_cls = registry.get("market", name)
+    source, flavor = registry.split_name(name)
+    adapter_cls = registry.get("market", source, flavor)
     adapter = adapter_cls()
 
     assert hasattr(adapter, "start"), f"{name} must implement start"
@@ -36,7 +37,8 @@ def test_market_adapters_conformance(name: str) -> None:
 @pytest.mark.parametrize("name", registry.names("news"))
 def test_news_adapters_conformance(name: str) -> None:
     """Verifies that every registered news adapter complies with the NewsSourcePort Protocol."""
-    adapter_cls = registry.get("news", name)
+    source, flavor = registry.split_name(name)
+    adapter_cls = registry.get("news", source, flavor)
     adapter = adapter_cls()
 
     assert hasattr(adapter, "start"), f"{name} must implement start"
@@ -51,7 +53,8 @@ def test_news_adapters_conformance(name: str) -> None:
 @pytest.mark.parametrize("name", registry.names("account"))
 def test_account_adapters_conformance(name: str) -> None:
     """Verifies that every registered account adapter complies with the AccountSourcePort Protocol."""
-    adapter_cls = registry.get("account", name)
+    source, flavor = registry.split_name(name)
+    adapter_cls = registry.get("account", source, flavor)
     adapter = adapter_cls()
 
     assert hasattr(adapter, "start"), f"{name} must implement start"

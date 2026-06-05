@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import sys
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Path injection for local packages and namespace packages
@@ -37,7 +38,13 @@ import asyncio
 
 from account import AccountService  # pyrefly: ignore [missing-import]
 from bus import Bus, InProcessBus  # pyrefly: ignore [missing-import]
-from contracts import AccountSourcePort
+from contracts import (
+    AccountSourcePort,
+    AssetClass,
+    Instrument,
+    MarketSourcePort,
+    Timeframe,
+)
 from guardrail import Guardrail  # pyrefly: ignore [missing-import]
 from persistence import (
     Database,
@@ -47,7 +54,12 @@ from persistence import (
 from tools import ToolLayer  # pyrefly: ignore [missing-import]
 
 from apps.smoke.mock_adapter import MockAccountAdapter
-from config import AppConfig  # pyrefly: ignore [missing-import]
+from config import AppConfig, SourceSettings  # pyrefly: ignore [missing-import]
+
+# Smoke-local knobs: timeframe + lookback window for the market bars query.
+# These describe WHAT the smoke asks of the adapter, not WHAT the adapter is.
+_BAR_TIMEFRAME = Timeframe.M1
+_BAR_LOOKBACK = timedelta(hours=1)
 
 
 def build_adapter(mode: str, cfg: AppConfig) -> AccountSourcePort:
@@ -62,6 +74,31 @@ def build_adapter(mode: str, cfg: AppConfig) -> AccountSourcePort:
         params = cfg.source_params("account", "alpaca")
         return AlpacaAccountAdapter(**params)
     raise SystemExit(f"unknown mode {mode!r}; use 'mock' or 'alpaca'")
+
+
+def build_market_adapter(cfg: AppConfig, src: SourceSettings) -> MarketSourcePort:
+    """Instantiate a registered market adapter from yaml + .env credentials.
+
+    ``source`` and optional ``name`` match the registry key directly, so this
+    builder no longer decomposes a flat yaml name. Source-specific yaml keys
+    such as ``feed`` and ``instruments`` live in ``params``.
+    """
+    from plugins import discover, registry
+
+    # Both stock + option live in the `adapters.market.alpaca` package; the
+    # @register decorator runs on import. Discovering the package once is
+    # enough regardless of which adapter name is being looked up.
+    discover(["adapters.market.alpaca"])
+
+    params = cfg.source_params("market", src.source, src.name)
+    cls = registry.get("market", src.source, src.name)
+    return cls(**params)  # type: ignore[abstract]
+
+
+def parse_market_instrument(symbol: str) -> Instrument:
+    """Build an Instrument from a yaml entry. The smoke only exercises the
+    equity path for now; adding an option case is a one-line extension."""
+    return Instrument(symbol=str(symbol), asset_class=AssetClass.EQUITY)
 
 
 def build_bus(cfg: AppConfig) -> Bus:
@@ -92,6 +129,45 @@ async def bus_watcher(service: AccountService, stop: asyncio.Event) -> None:
         )
         if stop.is_set():
             break
+
+
+async def fetch_market_bars(
+    adapter: MarketSourcePort,
+    instruments: list[Instrument],
+) -> None:
+    """Call get_bars on a pre-built market adapter for parsed instruments."""
+    # The Port doesn't declare `feed`/`params`; they live on the concrete
+    # AlpacaStockMarketAdapter. Suppress the attr-defined here so we don't
+    # have to expose them on the Port just for a diagnostic print.
+    print(
+        f"  [market] {adapter.name} "
+        f"(feed={adapter.feed}, "  # type: ignore[attr-defined]
+        f"rate_limit={adapter.params.get('rate_limit', '?')})"  # type: ignore[attr-defined]
+    )
+
+    end = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    start = end - _BAR_LOOKBACK
+
+    for instrument in instruments:
+        print(
+            f"  [market] get_bars({instrument.symbol!r}, "
+            f"tf={_BAR_TIMEFRAME.value}, "
+            f"start={start.isoformat()}, end={end.isoformat()})"
+        )
+        try:
+            bars = await adapter.get_bars(instrument, _BAR_TIMEFRAME, start, end)
+        except Exception as exc:  # noqa: BLE001 — surface the read-side failure
+            print(f"    → raised {type(exc).__name__}: {exc}")
+            continue
+        print(f"    → {len(bars)} bar(s)")
+        for bar in bars[:3]:
+            print(
+                f"      {bar.ts_open.isoformat()}  "
+                f"O={bar.open} H={bar.high} L={bar.low} C={bar.close} "
+                f"V={bar.volume} VWAP={bar.vwap} trades={bar.trades}"
+            )
+        if len(bars) > 3:
+            print(f"      … ({len(bars) - 3} more)")
 
 
 async def run(mode: str) -> None:
@@ -129,6 +205,27 @@ async def run(mode: str) -> None:
 
     await service.start()
     print("health:", await adapter.health())
+
+    # Market read path: build the stock market adapter from yaml + .env and
+    # pull a fresh bar window. Demonstrates that the adapter is wired the
+    # same way as the account adapter (config-driven, registry-resolved,
+    # splat-into-ctor) and that get_bars returns schema.Bar DTOs.
+    print("\n-- market: get_bars --")
+    market_settings = [
+        src
+        for src in cfg.settings.adapters.market
+        if src.enabled and src.source == "alpaca" and src.name == "stock"
+    ]
+    if not market_settings:
+        print("  [market] no market/alpaca/stock source configured — skipping")
+    else:
+        market_src = market_settings[0]
+        market_adapter = build_market_adapter(cfg, market_src)
+        market_instruments = [
+            parse_market_instrument(symbol)
+            for symbol in market_src.params.get("instruments", [])
+        ]
+        await fetch_market_bars(market_adapter, market_instruments)
 
     stop = asyncio.Event()
     watcher = asyncio.create_task(bus_watcher(service, stop))

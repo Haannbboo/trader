@@ -73,7 +73,7 @@ def _adapter_packages(cfg: AppConfig) -> list[str]:
     for domain in ("market", "news", "account"):
         for src in getattr(cfg.settings.adapters, domain):
             if src.enabled:
-                out.append(f"adapters.{domain}.{src.name}")
+                out.append(f"adapters.{domain}.{src.source}")
     return out
 
 
@@ -85,7 +85,7 @@ def _feature_packages(cfg: AppConfig) -> list[str]:
     for category, sources in cfg.settings.features.items():
         for src in sources:
             if src.enabled:
-                out.append(f"features.{category}.{src.name}")
+                out.append(f"features.{category}.{src.source}")
     return out
 
 

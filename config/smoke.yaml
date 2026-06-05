@@ -6,8 +6,18 @@ mode: smoke
 # Enabled data adapters and accounts
 adapters:
   account:
-    - name: alpaca
+    - source: alpaca
       paper: true
+  market:
+    # Stock adapter — `feed` selects the equity data source.
+    #   "sip"  : full SIP (paid plans / delayed depending on plan)
+    #   "iex"  : IEX free tier (no recent-SIP restriction but no NBBO depth)
+    # Construction-time validation rejects anything outside {sip, iex}; the
+    # default is "sip" so omitting `feed` is safe.
+    - source: alpaca
+      name: stock
+      feed: iex
+      instruments: ["AAPL"]
 
 # Risk controls and limits
 guardrails:

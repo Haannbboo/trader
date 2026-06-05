@@ -7,28 +7,32 @@ YAML_CONTENT = """
 mode: live
 adapters:
   market:
-    - name: polygon
+    - source: polygon
       symbols: ["AAPL", "MSFT"]
       timeframe: "1m"
-    - name: alpaca
+    - source: alpaca
       symbols: ["SPY"]
       timeframe: "5m"
       enabled: false
+    - source: alpaca
+      name: stock
+      feed: sip
+      instruments: ["QQQ"]
   account:
-    - name: alpaca
+    - source: alpaca
       paper: true
 features:
   technical:
-    - name: rsi
+    - source: rsi
       period: 14
 """
 
 DOTENV_CONTENT = """
 # Comments are ignored
-ALPACA_API_KEY=env_api_key
+ALPACA_API_KEY=vendor_api_key
 ALPACA_SECRET_KEY=env_secret_key
-# Specific prefix takes precedence
-ACCOUNT_ALPACA_API_KEY=specific_api_key
+# Name prefix takes precedence over the bare vendor prefix
+ALPACA_STOCK_API_KEY=stock_api_key
 """
 
 
@@ -51,12 +55,13 @@ def test_config_loading_and_merging():
             app_config = AppConfig.load(yaml_file.name, env_file=env_file.name)
 
             assert app_config.settings.mode == "live"
-            assert len(app_config.settings.adapters.market) == 2
+            assert len(app_config.settings.adapters.market) == 3
 
             # Verify market source parsing details
             polygon = next(
-                x for x in app_config.settings.adapters.market if x.name == "polygon"
+                x for x in app_config.settings.adapters.market if x.source == "polygon"
             )
+            assert polygon.name is None
             assert polygon.enabled is True
             assert polygon.params["symbols"] == ["AAPL", "MSFT"]
             assert polygon.params["timeframe"] == "1m"
@@ -64,35 +69,59 @@ def test_config_loading_and_merging():
             # 3. Test EnvSecretProvider mapping
             secrets = EnvSecretProvider(env_file=env_file.name)
             # test general secret retrieving
-            assert secrets.get("ALPACA_API_KEY") == "env_api_key"
+            assert secrets.get("ALPACA_API_KEY") == "vendor_api_key"
 
-            # test mapping for source (lowercase parameters)
-            # alpaca account should resolve: api_key (from specific prefix overrides simple prefix)
+            # test vendor-only lookup: a plain alpaca source uses ALPACA_*
             account_secrets = secrets.for_source("account", "alpaca")
-            assert account_secrets["api_key"] == "specific_api_key"
+            assert account_secrets["api_key"] == "vendor_api_key"
             assert account_secrets["secret_key"] == "env_secret_key"
+
+            # name prefix takes precedence: market/alpaca/stock picks up
+            # ALPACA_STOCK_API_KEY, not the bare vendor key
+            stock_secrets = secrets.for_source("market", "alpaca", "stock")
+            assert stock_secrets["api_key"] == "stock_api_key"
 
             # 4. Test source params merging (YAML + Secrets)
             merged = app_config.source_params("account", "alpaca")
             assert merged["paper"] is True
-            assert merged["api_key"] == "specific_api_key"
+            assert merged["api_key"] == "vendor_api_key"
             assert merged["secret_key"] == "env_secret_key"
 
             # 5. Test enabled sources (respects enabled flag)
             enabled_markets = app_config.enabled_sources("market")
-            assert len(enabled_markets) == 1
-            assert enabled_markets[0].name == "polygon"
+            assert len(enabled_markets) == 2
+            assert enabled_markets[0].source == "polygon"
+            assert enabled_markets[0].name is None
             assert enabled_markets[0].params["symbols"] == ["AAPL", "MSFT"]
+            # market/alpaca/stock picks up the name-prefix api_key
+            stock_cfg = next(
+                c for c in enabled_markets if c.source == "alpaca" and c.name == "stock"
+            )
+            assert stock_cfg.params["api_key"] == "stock_api_key"
+            assert stock_cfg.params["feed"] == "sip"
+            assert stock_cfg.params["instruments"] == ["QQQ"]
+
+            # `feed` and `instruments` stay in the generic params dict until
+            # market runtime config has a stronger shape.
+            stock_settings = next(
+                s
+                for s in app_config.settings.adapters.market
+                if s.source == "alpaca" and s.name == "stock"
+            )
+            assert stock_settings.params["feed"] == "sip"
+            assert stock_settings.params["instruments"] == ["QQQ"]
 
             enabled_accounts = app_config.enabled_sources("account")
             assert len(enabled_accounts) == 1
-            assert enabled_accounts[0].name == "alpaca"
-            assert enabled_accounts[0].params["api_key"] == "specific_api_key"
+            assert enabled_accounts[0].source == "alpaca"
+            assert enabled_accounts[0].name is None
+            assert enabled_accounts[0].params["api_key"] == "vendor_api_key"
 
             # 6. Test enabled features
             enabled_features = app_config.enabled_features()
             assert len(enabled_features) == 1
-            assert enabled_features[0].name == "rsi"
+            assert enabled_features[0].source == "rsi"
+            assert enabled_features[0].name is None
             assert enabled_features[0].params["period"] == 14
 
         finally:

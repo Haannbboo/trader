@@ -14,19 +14,19 @@ backtest:
 # Enabled data adapters and accounts (mocked/replayed in backtest)
 adapters:
   market:
-    - name: polygon
+    - source: polygon
       symbols: ["AAPL", "MSFT"]
       timeframe: "1m"
   account:
-    - name: mock_account
+    - source: mock_account
       initial_capital: 100000.0
 
 # Active features to compute
 features:
   technical:
-    - name: rsi
+    - source: rsi
       period: 14
-    - name: returns
+    - source: returns
       lags: [1]
 
 # Risk controls and limits
