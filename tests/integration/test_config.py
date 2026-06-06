@@ -31,8 +31,6 @@ DOTENV_CONTENT = """
 # Comments are ignored
 ALPACA_API_KEY=vendor_api_key
 ALPACA_SECRET_KEY=env_secret_key
-# Name prefix takes precedence over the bare vendor prefix
-ALPACA_STOCK_API_KEY=stock_api_key
 """
 
 
@@ -76,10 +74,10 @@ def test_config_loading_and_merging():
             assert account_secrets["api_key"] == "vendor_api_key"
             assert account_secrets["secret_key"] == "env_secret_key"
 
-            # name prefix takes precedence: market/alpaca/stock picks up
-            # ALPACA_STOCK_API_KEY, not the bare vendor key
+            # source-only lookup: market/alpaca/stock falls back to the vendor-level
+            # ALPACA_API_KEY because named-prefix env vars are no longer used
             stock_secrets = secrets.for_source("market", "alpaca", "stock")
-            assert stock_secrets["api_key"] == "stock_api_key"
+            assert stock_secrets["api_key"] == "vendor_api_key"
 
             # 4. Test source params merging (YAML + Secrets)
             merged = app_config.source_params("account", "alpaca")
@@ -93,11 +91,11 @@ def test_config_loading_and_merging():
             assert enabled_markets[0].source == "polygon"
             assert enabled_markets[0].name is None
             assert enabled_markets[0].params["symbols"] == ["AAPL", "MSFT"]
-            # market/alpaca/stock picks up the name-prefix api_key
+            # market/alpaca/stock falls back to the vendor-level api_key
             stock_cfg = next(
                 c for c in enabled_markets if c.source == "alpaca" and c.name == "stock"
             )
-            assert stock_cfg.params["api_key"] == "stock_api_key"
+            assert stock_cfg.params["api_key"] == "vendor_api_key"
             assert stock_cfg.params["feed"] == "sip"
             assert stock_cfg.params["instruments"] == ["QQQ"]
 
@@ -126,6 +124,29 @@ def test_config_loading_and_merging():
 
         finally:
             os.unlink(yaml_file.name)
+            os.unlink(env_file.name)
+
+
+def test_env_secret_provider_ignores_name_for_canonical_lookup() -> None:
+    """Named-prefix env vars (<SOURCE>_<NAME>_*) must NOT override vendor-level (<SOURCE>_*).
+
+    Both market/alpaca/stock and account/alpaca should resolve to the same
+    ALPACA_API_KEY when only the vendor-level var is set.
+    """
+    dotenv_content = """
+ALPACA_API_KEY=vendor_api_key
+ALPACA_STOCK_API_KEY=old_named_prefix_api_key
+"""
+    with tempfile.NamedTemporaryFile(suffix=".env", mode="w", delete=False) as env_file:
+        env_file.write(dotenv_content)
+        env_file.close()
+
+        try:
+            secrets = EnvSecretProvider(env_file=env_file.name)
+            stock_secrets = secrets.for_source("market", "alpaca", "stock")
+
+            assert stock_secrets["api_key"] == "vendor_api_key"
+        finally:
             os.unlink(env_file.name)
 
 

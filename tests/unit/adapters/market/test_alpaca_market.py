@@ -113,6 +113,14 @@ class FakeStockDataStream:
         self.stopped = True
 
 
+class FakeBrokenStockHistoricalClient:
+    def get_stock_bars(self, request: Any) -> Any:
+        raise AttributeError("internal SDK bug")
+
+    def get_option_bars(self, request: Any) -> Any:
+        raise AssertionError("get_option_bars must not be called by stock adapter")
+
+
 class FakeOptionDataStream(FakeStockDataStream):
     def __init__(self) -> None:
         super().__init__()
@@ -158,6 +166,43 @@ async def test_alpaca_stock_get_bars_normalizes_fixture_to_schema_bars() -> None
     assert client.last_request.timeframe.unit.name == "Minute"
     # Default feed must be SIP (per adapter contract), not the alpaca-py default.
     assert client.last_request.feed.name == "SIP"
+
+
+@pytest.mark.asyncio
+async def test_alpaca_stock_get_bars_preserves_zero_values() -> None:
+    client = FakeStockHistoricalClient()
+    client.bars_payload = {
+        "bars": [
+            {
+                "t": "2024-01-19T14:30:00Z",
+                "o": 0,
+                "h": 0,
+                "l": 0,
+                "c": 0,
+                "v": 0,
+                "vw": 0,
+                "n": 0,
+            }
+        ]
+    }
+    adapter = AlpacaStockMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=client,
+    )
+    instrument = Instrument(symbol="AAPL", asset_class=AssetClass.EQUITY)
+    start = datetime(2024, 1, 19, 14, 30, tzinfo=timezone.utc)
+    end = datetime(2024, 1, 19, 15, 0, tzinfo=timezone.utc)
+
+    bars = await adapter.get_bars(instrument, Timeframe.M1, start, end)
+
+    assert bars[0].open == Decimal("0")
+    assert bars[0].high == Decimal("0")
+    assert bars[0].low == Decimal("0")
+    assert bars[0].close == Decimal("0")
+    assert bars[0].volume == Decimal("0")
+    assert bars[0].vwap == Decimal("0")
+    assert bars[0].trades == 0
 
 
 @pytest.mark.asyncio
@@ -355,6 +400,23 @@ def test_alpaca_stock_caps_capabilities_at_equity() -> None:
     assert AssetClass.OPTION not in adapter.capabilities.asset_classes
     assert adapter.capabilities.supports_streaming is True
     assert adapter.capabilities.historical is True
+
+
+@pytest.mark.asyncio
+async def test_alpaca_stock_get_bars_does_not_fallback_on_internal_attribute_error() -> (
+    None
+):
+    adapter = AlpacaStockMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=FakeBrokenStockHistoricalClient(),
+    )
+    instrument = Instrument(symbol="AAPL", asset_class=AssetClass.EQUITY)
+    start = datetime(2024, 1, 19, 14, 30, tzinfo=timezone.utc)
+    end = datetime(2024, 1, 19, 15, 0, tzinfo=timezone.utc)
+
+    with pytest.raises(AttributeError, match="internal SDK bug"):
+        await adapter.get_bars(instrument, Timeframe.M1, start, end)
 
 
 # ---------------------------------------------------------------------------

@@ -45,8 +45,8 @@ class SecretProvider(Protocol):
     ) -> dict[str, Any]:
         """All secrets belonging to one source, stripped of their prefix.
 
-        Tries ``<SOURCE>_<NAME>_*`` first, then ``<SOURCE>_*`` as fallback.
-        e.g. ``("account", "alpaca")`` -> ``{"api_key": ..., "api_secret": ...}``
+        Only ``<SOURCE>_*`` is supported. ``name`` is accepted to keep the
+        interface aligned with registry keys, but it does not affect env lookup.
         """
         ...
 
@@ -54,8 +54,7 @@ class SecretProvider(Protocol):
 class EnvSecretProvider:
     """Reads process env and optionally parses a local .env file.
     Convention:
-      - Named source: <SOURCE_UPPER>_<NAME_UPPER>_<PARAM_UPPER>
-      - Vendor only: <SOURCE_UPPER>_<PARAM_UPPER>
+      - Source-level: <SOURCE_UPPER>_<PARAM_UPPER>
     """
 
     def __init__(self, *, env_file: str = ".env") -> None:
@@ -86,32 +85,26 @@ class EnvSecretProvider:
     def for_source(
         self, domain: str, source: str, name: Optional[str] = None
     ) -> dict[str, Any]:
-        """Find the credentials for one source, returning a dict of ctor kwargs.
+        """Find source-level credentials, returning ctor kwargs.
 
-        Two prefix tiers, most-specific first:
-          1. ``<SOURCE>_<NAME>_*``  e.g. ``ALPACA_STOCK_API_KEY``
-          2. ``<SOURCE>_*``        e.g. ``ALPACA_API_KEY``
-
-        The vendor-only tier is the fallback for any named source: a single set
-        of ``ALPACA_*`` creds covers ``alpaca``, ``alpaca/stock`` and
-        ``alpaca/option``. Per-name env vars override vendor-level when both
-        are set.
+        Only ``<SOURCE>_*`` is supported. ``domain`` and ``name`` are accepted
+        to keep the interface aligned with registry keys, but neither affects
+        env lookup.
         """
         merged: dict[str, str] = {}
         all_vars = {**os.environ, **self.secrets}
+        prefix = f"{source.upper()}_"
 
-        prefixes: list[str] = []
-        if name:
-            prefixes.append(f"{source.upper()}_{name.upper()}_")
-        prefixes.append(f"{source.upper()}_")
-
-        for prefix in prefixes:
-            for k, v in all_vars.items():
-                if k.upper().startswith(prefix):
-                    param_name = k[len(prefix) :].lower()
-                    # Earlier (more specific) prefix already populated this
-                    # key if it matched, so setdefault keeps specificity order.
-                    merged.setdefault(param_name, v)
+        for k, v in all_vars.items():
+            if k.upper().startswith(prefix):
+                # Strip only the source prefix. For source="alpaca":
+                #   ALPACA_API_KEY -> api_key
+                #   ALPACA_SECRET_KEY -> secret_key
+                #   ALPACA_STOCK_API_KEY -> stock_api_key
+                # STOCK is not treated as a registry name here; named env
+                # prefixes no longer map to canonical kwargs like api_key.
+                param_name = k[len(prefix) :].lower()
+                merged[param_name] = v
 
         return merged
 

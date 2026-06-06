@@ -3,11 +3,11 @@
 Alpaca splits its market-data REST and websocket surfaces by asset class, so
 this package exposes TWO adapters registered under distinct names:
 
-  - ``AlpacaStockMarketAdapter``  (``market`` / ``alpaca_stock``)
+  - ``AlpacaStockMarketAdapter``  (``market`` / ``alpaca`` / ``stock``)
       REST:   ``StockHistoricalDataClient.get_stock_bars``
       Stream: ``StockDataStream``  -> ``subscribe_trades`` / ``_quotes`` / ``_bars``
 
-  - ``AlpacaOptionMarketAdapter`` (``market`` / ``alpaca_option``)
+  - ``AlpacaOptionMarketAdapter`` (``market`` / ``alpaca`` / ``option``)
       REST:   ``OptionHistoricalDataClient.get_option_bars``
       Stream: ``OptionDataStream`` -> same three ``subscribe_*`` channels
 
@@ -134,6 +134,20 @@ def _value(value: Any) -> Any:
     return getattr(value, "value", value)
 
 
+def _first_present(raw: dict, *keys: str) -> Any:
+    """Return the first alias value that is present, preserving falsy values.
+
+    Alpaca raw-data dicts use compact keys like ``o``/``v``/``n`` while
+    model-dumped SDK objects use names like ``open``/``volume``/``trade_count``.
+    Avoid ``a or b`` here: zero prices, volumes, and trade counts are valid.
+    """
+    for key in keys:
+        value = raw.get(key)
+        if value is not None:
+            return value
+    return None
+
+
 def _decimal(value: Any) -> Decimal:
     if value is None:
         raise ValueError("Expected decimal-compatible value, got None")
@@ -232,10 +246,7 @@ class _AlpacaMarketAdapterBase(BaseMarketAdapter):
         client = self._require_historical_client()
         symbol = self._native_symbol(instrument)
         request = self._build_bars_request(symbol, timeframe, start, end)
-        try:
-            response = await asyncio.to_thread(client.get_stock_bars, request)
-        except AttributeError:
-            response = await asyncio.to_thread(client.get_option_bars, request)
+        response = await asyncio.to_thread(self._fetch_bars, client, request)
         return [
             self._normalize_historical_bar_payload(raw_bar, instrument, timeframe)
             for raw_bar in self._extract_bar_payloads(response, symbol)
@@ -266,6 +277,14 @@ class _AlpacaMarketAdapterBase(BaseMarketAdapter):
     ) -> Any:
         """Build a StockBarsRequest/OptionBarsRequest; subclasses pick the
         request class so the same helper serves both adapters."""
+        raise NotImplementedError
+
+    def _fetch_bars(self, client: _HistoricalClientLike, request: Any) -> Any:
+        """Dispatch to the correct client method for this asset class.
+
+        Subclasses implement this hook so ``get_bars`` does not need a
+        broad ``except AttributeError`` fallback that masks internal SDK bugs.
+        """
         raise NotImplementedError
 
     def _extract_bar_payloads(self, response: Any, symbol: str) -> list[Any]:
@@ -341,33 +360,30 @@ class _AlpacaMarketAdapterBase(BaseMarketAdapter):
         instrument: Instrument = raw["_instrument"]
         return Quote(
             instrument=instrument,
-            ts_event=_parse_timestamp(raw.get("t") or raw.get("timestamp")),
-            bid=_optional_decimal(raw.get("bp") or raw.get("bid_price")),
-            ask=_optional_decimal(raw.get("ap") or raw.get("ask_price")),
-            bid_size=_optional_decimal(raw.get("bs") or raw.get("bid_size")),
-            ask_size=_optional_decimal(raw.get("as") or raw.get("ask_size")),
-            last=_optional_decimal(raw.get("p") or raw.get("price")),
-            last_size=_optional_decimal(raw.get("s") or raw.get("size")),
+            ts_event=_parse_timestamp(_first_present(raw, "t", "timestamp")),
+            bid=_optional_decimal(_first_present(raw, "bp", "bid_price")),
+            ask=_optional_decimal(_first_present(raw, "ap", "ask_price")),
+            bid_size=_optional_decimal(_first_present(raw, "bs", "bid_size")),
+            ask_size=_optional_decimal(_first_present(raw, "as", "ask_size")),
+            last=_optional_decimal(_first_present(raw, "p", "price")),
+            last_size=_optional_decimal(_first_present(raw, "s", "size")),
         )
 
     def _normalize_bar_impl(self, raw: dict) -> Bar:
         instrument: Instrument = raw["_instrument"]
         timeframe: Timeframe = raw.get("timeframe") or Timeframe.M1
+        trade_count = _first_present(raw, "n", "trade_count")
         return Bar(
             instrument=instrument,
             timeframe=timeframe,
-            ts_open=_parse_timestamp(raw.get("t") or raw.get("timestamp")),
-            open=_decimal(raw.get("o") or raw.get("open")),
-            high=_decimal(raw.get("h") or raw.get("high")),
-            low=_decimal(raw.get("l") or raw.get("low")),
-            close=_decimal(raw.get("c") or raw.get("close")),
-            volume=_decimal(raw.get("v") or raw.get("volume")),
-            vwap=_optional_decimal(raw.get("vw") or raw.get("vwap")),
-            trades=(
-                int(_value(raw.get("n") or raw.get("trade_count")))
-                if (raw.get("n") or raw.get("trade_count")) is not None
-                else None
-            ),
+            ts_open=_parse_timestamp(_first_present(raw, "t", "timestamp")),
+            open=_decimal(_first_present(raw, "o", "open")),
+            high=_decimal(_first_present(raw, "h", "high")),
+            low=_decimal(_first_present(raw, "l", "low")),
+            close=_decimal(_first_present(raw, "c", "close")),
+            volume=_decimal(_first_present(raw, "v", "volume")),
+            vwap=_optional_decimal(_first_present(raw, "vw", "vwap")),
+            trades=int(_value(trade_count)) if trade_count is not None else None,
         )
 
     # --- internals ---
@@ -463,6 +479,8 @@ class _AlpacaStreamIterator:
         try:
             while True:
                 if task.done() and queue.empty():
+                    if task.cancelled():
+                        break
                     exc = task.exception()
                     if exc is not None:
                         raise exc
@@ -553,6 +571,9 @@ class AlpacaStockMarketAdapter(_AlpacaMarketAdapterBase):
             feed=getattr(DataFeed, self.feed.upper()),
         )
 
+    def _fetch_bars(self, client: _HistoricalClientLike, request: Any) -> Any:
+        return client.get_stock_bars(request)
+
 
 # ---------------------------------------------------------------------------
 # Option adapter
@@ -594,6 +615,9 @@ class AlpacaOptionMarketAdapter(_AlpacaMarketAdapterBase):
             start=start,
             end=end,
         )
+
+    def _fetch_bars(self, client: _HistoricalClientLike, request: Any) -> Any:
+        return client.get_option_bars(request)
 
     def _native_symbol(self, instrument: Instrument) -> str:
         if instrument.asset_class is not AssetClass.OPTION:

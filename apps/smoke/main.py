@@ -7,12 +7,12 @@ minimal AccountService, start the event pump, then (a) call tools synchronously
 like an agent would and (b) watch fills stream off the bus.
 
 Run:
-    python -m apps.smoke.main mock        # no network, fake data
-    python -m apps.smoke.main alpaca      # real Alpaca paper account
+    python -m apps.smoke.main mock        # mock account adapter; market read follows config
+    python -m apps.smoke.main alpaca      # real Alpaca paper account + configured market read
 
-The ONLY difference between the two modes is which adapter is built. Everything
-downstream (service, bus, tools) is identical — that substitutability is the
-thing this slice exists to demonstrate.
+The account side is selected by mode. Everything downstream of the account
+adapter is identical. The market read path is separately config-driven so it can
+exercise the registered market adapter even while the account side is mocked.
 
 The bus impl is also driven by config: if `infra.bus.url` is set in
 config/smoke.yaml the slice uses RedisStreamBus (start `just up` first); if

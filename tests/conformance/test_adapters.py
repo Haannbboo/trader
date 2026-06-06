@@ -7,6 +7,7 @@ from plugins import registry
 # Trigger imports to register plugins
 for module_name in (
     "adapters.market.ibkr",
+    "adapters.market.alpaca",
     "adapters.market.polygon",
     "adapters.news.benzinga",
     "adapters.news.rss",
