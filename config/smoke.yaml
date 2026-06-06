@@ -18,6 +18,10 @@ adapters:
       name: stock
       feed: iex
       instruments: ["AAPL"]
+    - source: alpaca
+      name: option
+      feed: indicative
+      instruments: ["AAPL260612C00300000"]
 
 # Risk controls and limits
 guardrails:

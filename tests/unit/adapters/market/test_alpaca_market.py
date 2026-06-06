@@ -422,38 +422,33 @@ async def test_alpaca_stock_get_bars_does_not_fallback_on_internal_attribute_err
 # ---------------------------------------------------------------------------
 # Option adapter
 # ---------------------------------------------------------------------------
-def test_alpaca_option_derives_occ_symbol_from_instrument() -> None:
+def test_alpaca_option_feed_defaults_to_opra() -> None:
     adapter = AlpacaOptionMarketAdapter(
         api_key="key",
         api_secret="secret",
         historical_client=FakeOptionHistoricalClient(),
     )
-    instrument = Instrument(
-        symbol="AAPL",
-        asset_class=AssetClass.OPTION,
-        expiry=datetime(2024, 1, 19, tzinfo=timezone.utc),
-        strike=Decimal("150.00"),
-        right=OptionRight.CALL,
-    )
-
-    assert adapter._occ_symbol(instrument) == "AAPL240119C00150000"
+    assert adapter.feed == "opra"
 
 
-def test_alpaca_option_occ_symbol_handles_low_strike_and_right() -> None:
+def test_alpaca_option_feed_can_be_indicative() -> None:
     adapter = AlpacaOptionMarketAdapter(
         api_key="key",
         api_secret="secret",
         historical_client=FakeOptionHistoricalClient(),
+        feed="indicative",
     )
-    instrument = Instrument(
-        symbol="SPY",
-        asset_class=AssetClass.OPTION,
-        expiry=datetime(2024, 6, 21, tzinfo=timezone.utc),
-        strike=Decimal("500"),
-        right=OptionRight.PUT,
-    )
+    assert adapter.feed == "indicative"
 
-    assert adapter._occ_symbol(instrument) == "SPY240621P00500000"
+
+def test_alpaca_option_feed_rejects_invalid_value() -> None:
+    with pytest.raises(ValueError, match="feed"):
+        AlpacaOptionMarketAdapter(
+            api_key="key",
+            api_secret="secret",
+            historical_client=FakeOptionHistoricalClient(),
+            feed="iex",
+        )
 
 
 @pytest.mark.asyncio
@@ -481,6 +476,61 @@ async def test_alpaca_option_get_bars_uses_occ_symbol_and_normalizes() -> None:
     assert bars[0].instrument.asset_class == AssetClass.OPTION
     assert bars[0].close == Decimal("5.25")
     assert client.last_request.symbol_or_symbols == "AAPL240119C00150000"
+
+
+@pytest.mark.asyncio
+async def test_alpaca_option_get_bars_does_not_send_feed_to_request() -> None:
+    client = FakeOptionHistoricalClient()
+    adapter = AlpacaOptionMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=client,
+        feed="indicative",
+    )
+    instrument = Instrument(
+        symbol="AAPL",
+        asset_class=AssetClass.OPTION,
+        expiry=datetime(2024, 1, 19, tzinfo=timezone.utc),
+        strike=Decimal("150"),
+        right=OptionRight.CALL,
+    )
+    start = datetime(2024, 1, 19, 14, 30, tzinfo=timezone.utc)
+    end = datetime(2024, 1, 19, 15, 0, tzinfo=timezone.utc)
+
+    await adapter.get_bars(instrument, Timeframe.M1, start, end)
+
+    assert "feed" not in client.last_request.to_request_fields()
+
+
+def test_alpaca_option_data_stream_uses_feed(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeOptionDataStreamCtor:
+        def __init__(
+            self,
+            *,
+            api_key: str,
+            secret_key: str,
+            feed: Any,
+        ) -> None:
+            captured["api_key"] = api_key
+            captured["secret_key"] = secret_key
+            captured["feed"] = feed
+
+    import alpaca.data.live.option as option_live
+
+    monkeypatch.setattr(option_live, "OptionDataStream", FakeOptionDataStreamCtor)
+    adapter = AlpacaOptionMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        feed="indicative",
+    )
+
+    adapter._build_data_stream()
+
+    assert captured["api_key"] == "key"
+    assert captured["secret_key"] == "secret"
+    assert captured["feed"].value == "indicative"
 
 
 @pytest.mark.asyncio

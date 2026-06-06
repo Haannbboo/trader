@@ -24,8 +24,10 @@ from __future__ import annotations
 
 import sys
 import uuid
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 # Path injection for local packages and namespace packages
 root_dir = Path(__file__).resolve().parents[2]
@@ -44,6 +46,7 @@ from contracts import (
     Instrument,
     MarketSourcePort,
     Timeframe,
+    occ_to_instrument,
 )
 from guardrail import Guardrail  # pyrefly: ignore [missing-import]
 from persistence import (
@@ -56,10 +59,22 @@ from tools import ToolLayer  # pyrefly: ignore [missing-import]
 from apps.smoke.mock_adapter import MockAccountAdapter
 from config import AppConfig, SourceSettings  # pyrefly: ignore [missing-import]
 
-# Smoke-local knobs: timeframe + lookback window for the market bars query.
-# These describe WHAT the smoke asks of the adapter, not WHAT the adapter is.
+# Smoke-local knobs for the market bars query. The smoke does not need fresh
+# data; a stable, known market-hours window makes stock and option reads
+# deterministic and avoids recent-data restrictions.
 _BAR_TIMEFRAME = Timeframe.M1
-_BAR_LOOKBACK = timedelta(hours=1)
+_MARKET_TZ = ZoneInfo("America/New_York")
+_BAR_START = datetime(2026, 6, 5, 10, 0, tzinfo=_MARKET_TZ)
+_BAR_END = datetime(2026, 6, 5, 11, 0, tzinfo=_MARKET_TZ)
+
+
+@dataclass(frozen=True)
+class SmokeMarketSource:
+    """A configured market adapter plus the instruments smoke should exercise."""
+
+    settings: SourceSettings
+    adapter: MarketSourcePort
+    instruments: list[Instrument]
 
 
 def build_adapter(mode: str, cfg: AppConfig) -> AccountSourcePort:
@@ -85,20 +100,63 @@ def build_market_adapter(cfg: AppConfig, src: SourceSettings) -> MarketSourcePor
     """
     from plugins import discover, registry
 
-    # Both stock + option live in the `adapters.market.alpaca` package; the
-    # @register decorator runs on import. Discovering the package once is
-    # enough regardless of which adapter name is being looked up.
-    discover(["adapters.market.alpaca"])
+    # Import the configured source package so its @register decorator runs
+    # before registry lookup. Sub-names like alpaca/stock and alpaca/option
+    # live in the same source package.
+    discover([f"adapters.market.{src.source.lower()}"])
 
     params = cfg.source_params("market", src.source, src.name)
     cls = registry.get("market", src.source, src.name)
     return cls(**params)  # type: ignore[abstract]
 
 
-def parse_market_instrument(symbol: str) -> Instrument:
-    """Build an Instrument from a yaml entry. The smoke only exercises the
-    equity path for now; adding an option case is a one-line extension."""
-    return Instrument(symbol=str(symbol), asset_class=AssetClass.EQUITY)
+def parse_market_instrument(symbol: str, asset_class: AssetClass) -> Instrument:
+    """Build an Instrument from a yaml entry for the target market adapter."""
+    if asset_class is AssetClass.OPTION:
+        return occ_to_instrument(str(symbol))
+    return Instrument(symbol=str(symbol), asset_class=asset_class)
+
+
+def market_asset_class(adapter: MarketSourcePort) -> AssetClass:
+    """Smoke expects one configured adapter per asset class."""
+    asset_classes = tuple(adapter.capabilities.asset_classes)
+    if len(asset_classes) != 1:
+        raise ValueError(
+            f"{adapter.name} must advertise exactly one asset class for smoke, "
+            f"got {asset_classes!r}"
+        )
+    return asset_classes[0]
+
+
+def build_smoke_market_sources(cfg: AppConfig) -> list[SmokeMarketSource]:
+    """Build all enabled market adapters and parse their configured instruments.
+
+    This keeps get_bars and the future subscribe smoke path on the same
+    config-driven source list instead of branching on registry names.
+    """
+    markets: list[SmokeMarketSource] = []
+    for src in cfg.settings.adapters.market:
+        if not src.enabled:
+            continue
+        adapter = build_market_adapter(cfg, src)
+        asset_class = market_asset_class(adapter)
+        instruments = [
+            parse_market_instrument(str(symbol), asset_class)
+            for symbol in src.params.get("instruments", [])
+        ]
+        markets.append(
+            SmokeMarketSource(
+                settings=src,
+                adapter=adapter,
+                instruments=instruments,
+            )
+        )
+    return markets
+
+
+def market_bar_window() -> tuple[datetime, datetime]:
+    """Return the fixed historical bars window used by smoke."""
+    return _BAR_START, _BAR_END
 
 
 def build_bus(cfg: AppConfig) -> Bus:
@@ -136,17 +194,14 @@ async def fetch_market_bars(
     instruments: list[Instrument],
 ) -> None:
     """Call get_bars on a pre-built market adapter for parsed instruments."""
-    # The Port doesn't declare `feed`/`params`; they live on the concrete
-    # AlpacaStockMarketAdapter. Suppress the attr-defined here so we don't
-    # have to expose them on the Port just for a diagnostic print.
-    print(
-        f"  [market] {adapter.name} "
-        f"(feed={adapter.feed}, "  # type: ignore[attr-defined]
-        f"rate_limit={adapter.params.get('rate_limit', '?')})"  # type: ignore[attr-defined]
-    )
+    params = getattr(adapter, "params", {})
+    details = [f"rate_limit={params.get('rate_limit', '?')}"]
+    feed = getattr(adapter, "feed", None)
+    if feed is not None:
+        details.insert(0, f"feed={feed}")
+    print(f"  [market] {adapter.name} ({', '.join(details)})")
 
-    end = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-    start = end - _BAR_LOOKBACK
+    start, end = market_bar_window()
 
     for instrument in instruments:
         print(
@@ -206,26 +261,16 @@ async def run(mode: str) -> None:
     await service.start()
     print("health:", await adapter.health())
 
-    # Market read path: build the stock market adapter from yaml + .env and
-    # pull a fresh bar window. Demonstrates that the adapter is wired the
-    # same way as the account adapter (config-driven, registry-resolved,
-    # splat-into-ctor) and that get_bars returns schema.Bar DTOs.
+    # Market read path: build every enabled market adapter from yaml + .env and
+    # pull a fresh bar window. The same configured source list will feed the
+    # future subscribe() smoke path.
     print("\n-- market: get_bars --")
-    market_settings = [
-        src
-        for src in cfg.settings.adapters.market
-        if src.enabled and src.source == "alpaca" and src.name == "stock"
-    ]
-    if not market_settings:
-        print("  [market] no market/alpaca/stock source configured — skipping")
+    market_sources = build_smoke_market_sources(cfg)
+    if not market_sources:
+        print("  [market] no enabled market sources configured — skipping")
     else:
-        market_src = market_settings[0]
-        market_adapter = build_market_adapter(cfg, market_src)
-        market_instruments = [
-            parse_market_instrument(symbol)
-            for symbol in market_src.params.get("instruments", [])
-        ]
-        await fetch_market_bars(market_adapter, market_instruments)
+        for market in market_sources:
+            await fetch_market_bars(market.adapter, market.instruments)
 
     stop = asyncio.Event()
     watcher = asyncio.create_task(bus_watcher(service, stop))

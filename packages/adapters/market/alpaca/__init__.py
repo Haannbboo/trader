@@ -20,7 +20,6 @@ only source-specific bits filled in here are:
   * ``_normalize_*``            — alpaca-py payloads -> schema DTOs
   * ``_subscribe``              — websocket plumbing (handler -> asyncio queue)
   * ``_wrap``                   — attach source name + ts_event to the envelope
-  * ``_occ_symbol`` (option)    — derive OCC option symbol from Instrument
 
 ``get_quote`` is intentionally NOT implemented in either adapter; it inherits
 ``NotImplementedError`` from the base. Add when a snapshot-quote read path
@@ -55,11 +54,11 @@ from contracts import (
     EventType,
     Instrument,
     MarketChannel,
-    OptionRight,
     Quote,
     SourceCapabilities,
     SourceMode,
     Timeframe,
+    instrument_to_occ,
 )
 from plugins import register
 
@@ -582,6 +581,20 @@ class AlpacaStockMarketAdapter(_AlpacaMarketAdapterBase):
 class AlpacaOptionMarketAdapter(_AlpacaMarketAdapterBase):
     asset_class = AssetClass.OPTION
 
+    _ALLOWED_FEEDS = ("opra", "indicative")
+
+    def __init__(
+        self,
+        *args: Any,
+        feed: str = "opra",
+        **kwargs: Any,
+    ) -> None:
+        normalized = feed.lower()
+        if normalized not in self._ALLOWED_FEEDS:
+            raise ValueError(f"feed must be one of {self._ALLOWED_FEEDS}, got {feed!r}")
+        self.feed = normalized
+        super().__init__(*args, **kwargs)
+
     def _build_historical_client(self) -> _HistoricalClientLike:
         from alpaca.data.historical.option import OptionHistoricalDataClient
 
@@ -591,6 +604,7 @@ class AlpacaOptionMarketAdapter(_AlpacaMarketAdapterBase):
         )
 
     def _build_data_stream(self) -> _DataStreamLike:
+        from alpaca.data.enums import OptionsFeed
         from alpaca.data.live.option import OptionDataStream
 
         if self.api_key is None or self.api_secret is None:
@@ -598,6 +612,7 @@ class AlpacaOptionMarketAdapter(_AlpacaMarketAdapterBase):
         return OptionDataStream(  # type: ignore[return-value]
             api_key=self.api_key,
             secret_key=self.api_secret,
+            feed=getattr(OptionsFeed, self.feed.upper()),
         )
 
     def _build_bars_request(
@@ -609,6 +624,8 @@ class AlpacaOptionMarketAdapter(_AlpacaMarketAdapterBase):
     ) -> Any:
         from alpaca.data.requests import OptionBarsRequest
 
+        # Option historical bars reject a `feed` query parameter. The feed
+        # setting is still used for OptionDataStream subscriptions.
         return OptionBarsRequest(
             symbol_or_symbols=symbol,
             timeframe=_alpaca_timeframe(timeframe),
@@ -625,32 +642,7 @@ class AlpacaOptionMarketAdapter(_AlpacaMarketAdapterBase):
                 f"AlpacaOptionMarketAdapter requires OPTION instruments, got "
                 f"{instrument.asset_class.value}"
             )
-        return self._occ_symbol(instrument)
-
-    def _occ_symbol(self, instrument: Instrument) -> str:
-        """Derive the OCC option symbol from an Instrument.
-
-        Format: <6-char-root-or-padded-root><YYMMDD><C|P><strike*1000 zero-pad 8>
-        Example: AAPL 2024-01-19 CALL 150.00 -> AAPL240119C00150000
-        """
-        if (
-            instrument.expiry is None
-            or instrument.strike is None
-            or instrument.right is None
-        ):
-            raise ValueError(
-                "Option Instrument requires expiry, strike, and right to "
-                "derive the OCC symbol"
-            )
-        root = instrument.symbol.upper()
-        if len(root) > 6:
-            raise ValueError(f"Option root too long for OCC symbol: {root!r}")
-        expiry = instrument.expiry.astimezone(timezone.utc)
-        date_part = expiry.strftime("%y%m%d")
-        right_part = "C" if instrument.right is OptionRight.CALL else "P"
-        strike_int = int((instrument.strike * Decimal(1000)).to_integral_value())
-        strike_part = f"{strike_int:08d}"
-        return f"{root}{date_part}{right_part}{strike_part}"
+        return instrument_to_occ(instrument)
 
 
 __all__ = [
