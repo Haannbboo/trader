@@ -191,11 +191,11 @@ class ToolLayer:
                             },
                             "start": {
                                 "type": "string",
-                                "description": "Start ISO-8601 timestamp (e.g. 2026-06-01T00:00:00Z).",
+                                "description": "Start ISO-8601 timestamp (e.g. 2026-06-01T00:00:00Z) in UTC.",
                             },
                             "end": {
                                 "type": "string",
-                                "description": "End ISO-8601 timestamp (e.g. 2026-06-02T00:00:00Z).",
+                                "description": "End ISO-8601 timestamp (e.g. 2026-06-02T00:00:00Z) in UTC.",
                             },
                         },
                         "required": ["symbol", "timeframe", "start", "end"],
@@ -211,7 +211,7 @@ class ToolLayer:
                         "properties": {
                             "symbol": {
                                 "type": "string",
-                                "description": "OCC Symbol of the option (e.g. AAPL260619C00150000).",
+                                "description": "OCC Symbol of the option (e.g. AAPL260619C00150000) in UTC.",
                             },
                             "timeframe": {
                                 "type": "string",
@@ -220,11 +220,11 @@ class ToolLayer:
                             },
                             "start": {
                                 "type": "string",
-                                "description": "Start ISO-8601 timestamp (e.g. 2026-06-01T00:00:00Z).",
+                                "description": "Start ISO-8601 timestamp (e.g. 2026-06-01T00:00:00Z) in UTC.",
                             },
                             "end": {
                                 "type": "string",
-                                "description": "End ISO-8601 timestamp (e.g. 2026-06-02T00:00:00Z).",
+                                "description": "End ISO-8601 timestamp (e.g. 2026-06-02T00:00:00Z) in UTC.",
                             },
                         },
                         "required": ["symbol", "timeframe", "start", "end"],

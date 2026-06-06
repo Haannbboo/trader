@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
-from typing import AsyncIterator
+from datetime import datetime, timedelta
+from typing import AsyncIterator, Optional
 
 from contracts import (
     Bar,
     Bus,
     Event,
     EventType,
+    HistoryStore,
     Instrument,
     MarketChannel,
     MarketDataService,
@@ -17,15 +18,41 @@ from contracts import (
     Subscription,
     Timeframe,
 )
+from loguru import logger
+from persistence import DbWriter
+
+
+def _timeframe_duration(tf: Timeframe) -> float:
+    """Helper to convert Timeframe enum/value into duration in seconds."""
+    val = tf.value
+    unit = val[-1]
+    num = int(val[:-1])
+    if unit == "s":
+        return float(num)
+    elif unit == "m":
+        return float(num * 60)
+    elif unit == "h":
+        return float(num * 3600)
+    elif unit == "d":
+        return float(num * 86400)
+    return 60.0
 
 
 class MarketService(MarketDataService):
     """Aggregates market data adapters, manages subscription reuse, and deduplicates feeds."""
 
-    def __init__(self, sources: list[MarketSourcePort], bus: Bus) -> None:
-        """Initialize MarketService with market sources and event bus."""
+    def __init__(
+        self,
+        sources: list[MarketSourcePort],
+        bus: Bus,
+        repository: Optional[HistoryStore] = None,
+        writer: Optional[DbWriter] = None,
+    ) -> None:
+        """Initialize MarketService with market sources, event bus, and optional repository/writer."""
         self.sources = sources
         self.bus = bus
+        self._repository = repository
+        self._writer = writer
         self._ref_counts: dict[tuple[Instrument, MarketChannel], int] = {}
         self._pump_tasks: dict[tuple[Instrument, MarketChannel], asyncio.Task] = {}
         self._lock = asyncio.Lock()
@@ -60,9 +87,47 @@ class MarketService(MarketDataService):
         start: datetime,
         end: datetime,
     ) -> list[Bar]:
-        """Fetch historical bars for a given instrument and timeframe."""
+        """Fetch historical bars for a given instrument and timeframe.
+
+        Checks the local database first if present. If bars are incomplete or missing
+        for the requested range, queries the source adapter and fills the local DB.
+        """
         source = self._route(instrument)
-        return await source.get_bars(instrument, timeframe, start, end)
+
+        if self._repository is None or self._writer is None:
+            return await source.get_bars(instrument, timeframe, start, end)
+
+        # 1. Query the local database
+        local_bars = await self._repository.fetch_bars(
+            instrument, timeframe, start, end
+        )
+
+        # 2. Check coverage: are any expected bars missing?
+        missing = True
+        if local_bars:
+            duration = _timeframe_duration(timeframe)
+            first_ok = local_bars[0].ts_open <= start
+            last_ok = local_bars[-1].ts_open + timedelta(seconds=duration) >= end
+            if first_ok and last_ok:
+                missing = False
+
+        if not missing:
+            return local_bars
+
+        # 3. Cache miss: fetch from live market source and upsert
+        logger.info(
+            "Local cache miss for {} [{}, {}] on timeframe {}. Fetching from live adapter.",
+            instrument.symbol,
+            start,
+            end,
+            timeframe.value,
+        )
+        bars = await source.get_bars(instrument, timeframe, start, end)
+
+        if bars:
+            await self._writer.store_bars(bars, source.name)
+
+        return bars
 
     async def subscribe(
         self,
@@ -135,8 +200,6 @@ class MarketService(MarketDataService):
             except asyncio.CancelledError:
                 pass
             except Exception as e:
-                from loguru import logger
-
                 logger.exception(
                     f"Upstream stream error for {instrument.symbol} {channel.value}: {e}"
                 )

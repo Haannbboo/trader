@@ -69,5 +69,5 @@ infra:
 
   persistence:
     # Operators must opt in and provide a production database DSN in deployment-specific configs.
-    dsn: ""
-    enabled: false
+    dsn: sqlite+aiosqlite:///./live.db
+    enabled: true

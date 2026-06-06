@@ -49,7 +49,7 @@ from loguru import logger
 from market import MarketService
 from news import NewsService
 from observability import setup_logging
-from persistence import Database, PersistenceWriter
+from persistence import Database, PersistenceWriter, Repository
 from plugins import discover, registry
 from tools import ToolLayer
 
@@ -181,12 +181,12 @@ async def run(config_path: str = "config/live.yaml") -> None:
     #     dsn is missing/empty. `create_all()` is dev-only — in prod use
     #     alembic migrations + the one-time create_hypertable() calls.
     db: Database | None = None
-    writer: PersistenceWriter | None = None
+    persistence: PersistenceWriter | None = None
     _psettings = cfg.settings.infra.persistence
     if _psettings.enabled and _psettings.dsn:
         db = Database(_psettings.dsn, echo=_psettings.echo)
         await db.create_all()
-        writer = PersistenceWriter(bus=bus, db=db)
+        persistence = PersistenceWriter(bus=bus, db=db)
         logger.info(
             "persistence: enabled (dialect={}, echo={})",
             db.dialect_name,
@@ -199,9 +199,11 @@ async def run(config_path: str = "config/live.yaml") -> None:
             bool(_psettings.dsn),
         )
 
-    writer_task = None
-    if writer is not None:
-        writer_task = asyncio.create_task(writer.run(), name="persistence-writer")
+    persistence_task = None
+    if persistence is not None:
+        persistence_task = asyncio.create_task(
+            persistence.run(), name="persistence-writer"
+        )
         # Yield to the event loop so the writer task runs and registers its subscription immediately
         await asyncio.sleep(0)
 
@@ -228,7 +230,14 @@ async def run(config_path: str = "config/live.yaml") -> None:
         sources=account_sources, bus=bus, guardrail=guardrail
     )
     market_service = (
-        MarketService(sources=market_sources, bus=bus) if market_sources else None
+        MarketService(
+            sources=market_sources,
+            bus=bus,
+            repository=Repository(db) if db is not None else None,
+            writer=persistence._writer if persistence is not None else None,
+        )
+        if market_sources
+        else None
     )
     news_service = NewsService(sources=news_sources, bus=bus) if news_sources else None
 
@@ -327,13 +336,13 @@ async def run(config_path: str = "config/live.yaml") -> None:
     # Don't refactor this to gather without re-doing that.
 
     live_tasks: set[asyncio.Task[Any]] = {serve_task, stop_task}
-    if writer_task is not None:
-        live_tasks.add(writer_task)
+    if persistence_task is not None:
+        live_tasks.add(persistence_task)
 
     # First of the live_tasks to finish ends the live loop:
     #   serve_task finishing means uvicorn crashed or exited cleanly;
     #   stop_task finishing means SIGINT/SIGTERM was received;
-    #   writer_task finishing means the persistence bus consumer raised
+    #   persistence_task finishing means the persistence bus consumer raised
     #     (it runs forever otherwise — cancellation in shutdown is the
     #     only normal exit).
     done, pending = await asyncio.wait(
@@ -366,8 +375,8 @@ async def run(config_path: str = "config/live.yaml") -> None:
         if exc is not None:
             logger.exception("gateway serve crashed: {}", exc)
             raise exc
-    if writer_task is not None and writer_task in done:
-        exc = writer_task.exception()
+    if persistence_task is not None and persistence_task in done:
+        exc = persistence_task.exception()
         if exc is not None:
             logger.exception("persistence writer crashed: {}", exc)
             raise exc

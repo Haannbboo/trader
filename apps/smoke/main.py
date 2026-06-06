@@ -238,12 +238,12 @@ async def run(mode: str) -> None:
     # Skipped cleanly when disabled or dsn is empty (so the smoke still runs
     # without storage if the config drops the block).
     db: Database | None = None
-    writer: PersistenceWriter | None = None
+    persistence: PersistenceWriter | None = None
     _ps = cfg.settings.infra.persistence
     if _ps.enabled and _ps.dsn:
         db = Database(_ps.dsn, echo=_ps.echo)
         await db.create_all()
-        writer = PersistenceWriter(bus=bus, db=db)
+        persistence = PersistenceWriter(bus=bus, db=db)
         print(f"  [persistence] enabled (dialect={db.dialect_name}, echo={_ps.echo})")
     else:
         print("  [persistence] disabled (no dsn or enabled=false)")
@@ -253,9 +253,11 @@ async def run(mode: str) -> None:
     # The writer runs as a background task. It subscribes to BAR/NEWS/FILL on
     # the bus and writes each event to the DB. Cancelled at shutdown.
     # Scheduled early so the subscription is active before the service starts.
-    writer_task: asyncio.Task[None] | None = None
-    if writer is not None:
-        writer_task = asyncio.create_task(writer.run(), name="persistence-writer")
+    persistence_task: asyncio.Task[None] | None = None
+    if persistence is not None:
+        persistence_task = asyncio.create_task(
+            persistence.run(), name="persistence-writer"
+        )
         await asyncio.sleep(0)
 
     await service.start()
@@ -311,10 +313,10 @@ async def run(mode: str) -> None:
     watcher.cancel()
 
     # (c) drain/stop the writer first so all events are flushed to the DB before reading
-    if writer_task is not None:
-        writer_task.cancel()
+    if persistence_task is not None:
+        persistence_task.cancel()
         try:
-            await writer_task
+            await persistence_task
         except asyncio.CancelledError:
             pass
         except Exception as e:

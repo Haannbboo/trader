@@ -31,11 +31,14 @@ class MockMarketSource:
         )
         self.started = False
         self.stopped = False
-        self.last_quote_instrument = None
-        self.last_bars_args = None
+        self.last_quote_instrument: Instrument | None = None
+        self.last_bars_args: tuple[Instrument, Timeframe, datetime, datetime] | None = (
+            None
+        )
         self.subscribed_instruments = None
         self.subscribed_channels = None
         self.events_to_yield: list[Event] = []
+        self.bars_to_return: list[Bar] | None = None
 
     @property
     def capabilities(self) -> SourceCapabilities:
@@ -69,6 +72,8 @@ class MockMarketSource:
         end: datetime,
     ) -> list[Bar]:
         self.last_bars_args = (instrument, timeframe, start, end)
+        if hasattr(self, "bars_to_return") and self.bars_to_return is not None:
+            return self.bars_to_return
         return [
             Bar(
                 instrument=instrument,
@@ -271,3 +276,95 @@ async def test_market_service_multiplexing() -> None:
     await gen2.aclose()
     assert len(service._ref_counts) == 0
     assert len(service._pump_tasks) == 0
+
+
+@pytest.mark.asyncio
+async def test_market_service_read_through_cache(tmp_path) -> None:
+    from persistence import Database, DbWriter, Repository
+
+    # Setup fresh sqlite database for testing
+    db_path = tmp_path / "test_market_service.db"
+    db = Database(f"sqlite+aiosqlite:///{db_path}")
+    await db.create_all()
+
+    source = MockMarketSource("stock_source", (AssetClass.EQUITY,))
+    bus = MockBus()
+    repo = Repository(db)
+    writer = DbWriter(db)
+    service = MarketService(
+        sources=[source], bus=bus, repository=repo, writer=writer  # type: ignore[arg-type]
+    )
+
+    instrument = Instrument(symbol="AAPL", asset_class=AssetClass.EQUITY)
+    timeframe = Timeframe.H1
+    start = datetime(2026, 6, 2, 12, 0, 0, tzinfo=timezone.utc)
+    end = datetime(2026, 6, 2, 14, 0, 0, tzinfo=timezone.utc)
+
+    # 1. First query when cache is empty (Cache Miss)
+    bar1 = Bar(
+        instrument=instrument,
+        timeframe=timeframe,
+        open=Decimal("100"),
+        high=Decimal("105"),
+        low=Decimal("99"),
+        close=Decimal("101"),
+        volume=Decimal("1000"),
+        ts_open=start,  # 12:00
+    )
+    bar2 = Bar(
+        instrument=instrument,
+        timeframe=timeframe,
+        open=Decimal("101"),
+        high=Decimal("106"),
+        low=Decimal("100"),
+        close=Decimal("102"),
+        volume=Decimal("1200"),
+        ts_open=datetime(2026, 6, 2, 13, 0, 0, tzinfo=timezone.utc),  # 13:00
+    )
+
+    source.bars_to_return = [bar1, bar2]
+
+    bars = await service.get_bars(instrument, timeframe, start, end)
+    assert len(bars) == 2
+    assert bars[0].close == Decimal("101")
+    assert bars[1].close == Decimal("102")
+
+    # Verify bars are saved in the DB
+    repo = Repository(db)
+    db_bars = await repo.fetch_bars(instrument, timeframe, start, end)
+    assert len(db_bars) == 2
+
+    # 2. Second query with same range (Cache Hit)
+    # Clear source return value so we'd fail if it hit the live source
+    source.bars_to_return = None
+    source.last_bars_args = None
+
+    cached_bars = await service.get_bars(instrument, timeframe, start, end)
+    assert len(cached_bars) == 2
+    assert cached_bars[0].close == Decimal("101")
+    # Verify the live source was NOT queried this time
+    assert source.last_bars_args is None
+
+    # 3. Third query with larger range (Partial cache miss / incomplete coverage)
+    # Query from 11:00 to 14:00 (database only has 12:00 and 13:00 bars)
+    larger_start = datetime(2026, 6, 2, 11, 0, 0, tzinfo=timezone.utc)
+    bar0 = Bar(
+        instrument=instrument,
+        timeframe=timeframe,
+        open=Decimal("99"),
+        high=Decimal("101"),
+        low=Decimal("98"),
+        close=Decimal("100"),
+        volume=Decimal("800"),
+        ts_open=larger_start,  # 11:00
+    )
+    source.bars_to_return = [bar0, bar1, bar2]
+
+    larger_bars = await service.get_bars(instrument, timeframe, larger_start, end)
+    assert len(larger_bars) == 3
+    assert larger_bars[0].close == Decimal("100")
+    # Verify the live source WAS queried
+    assert source.last_bars_args is not None
+
+    # Clean up DB connection
+    await db.close()
