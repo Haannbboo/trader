@@ -225,10 +225,13 @@ class _AlpacaMarketAdapterBase(BaseMarketAdapter):
             self.data_stream = self._build_data_stream()
 
     async def _disconnect(self) -> None:
-        if self.data_stream is not None and callable(
-            getattr(self.data_stream, "stop", None)
-        ):
-            self.data_stream.stop()
+        if self.data_stream is not None:
+            stream_loop = getattr(self.data_stream, "_loop", None)
+            if stream_loop is not None and stream_loop.is_running():
+                try:
+                    self.data_stream.stop()
+                except Exception:
+                    pass
 
     # --- MarketSourcePort surface ---
     # get_quote is intentionally not implemented: it inherits the base's

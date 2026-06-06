@@ -23,6 +23,13 @@ adapters:
     - source: alpaca
       paper: true
 
+  market:
+    - source: alpaca
+      name: stock
+      feed: iex
+    - source: alpaca
+      name: option
+
 # Active features to compute
 # features:
 # technical:

@@ -175,20 +175,43 @@ class ToolLayer:
             )
             specs.append(
                 {
-                    "name": "get_bars",
-                    "description": "Fetch historical bars for an instrument.",
+                    "name": "get_stock_bars",
+                    "description": "Fetch historical bars for a stock instrument.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "symbol": {
                                 "type": "string",
-                                "description": "Symbol of the instrument.",
+                                "description": "Symbol of the stock (e.g. AAPL).",
                             },
-                            "asset_class": {
+                            "timeframe": {
                                 "type": "string",
-                                "enum": ["equity", "option", "crypto"],
-                                "default": "equity",
-                                "description": "Asset class of the instrument.",
+                                "enum": ["1s", "1m", "5m", "15m", "1h", "1d"],
+                                "description": "Bar timeframe size.",
+                            },
+                            "start": {
+                                "type": "string",
+                                "description": "Start ISO-8601 timestamp (e.g. 2026-06-01T00:00:00Z).",
+                            },
+                            "end": {
+                                "type": "string",
+                                "description": "End ISO-8601 timestamp (e.g. 2026-06-02T00:00:00Z).",
+                            },
+                        },
+                        "required": ["symbol", "timeframe", "start", "end"],
+                    },
+                }
+            )
+            specs.append(
+                {
+                    "name": "get_option_bars",
+                    "description": "Fetch historical bars for an option instrument.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "symbol": {
+                                "type": "string",
+                                "description": "OCC Symbol of the option (e.g. AAPL260619C00150000).",
                             },
                             "timeframe": {
                                 "type": "string",
@@ -300,10 +323,23 @@ class ToolLayer:
             instrument = self._instrument_from_args(args)
             quote = await self._market.get_quote(instrument)
             return self._serialize(quote)
-        elif name == "get_bars":
+        elif name == "get_stock_bars":
             if self._market is None:
                 raise ValueError("Market service is not available")
-            instrument = self._instrument_from_args(args)
+            instrument = Instrument(
+                symbol=args["symbol"], asset_class=AssetClass.EQUITY
+            )
+            timeframe = Timeframe(args["timeframe"])
+            start = datetime.fromisoformat(args["start"].replace("Z", "+00:00"))
+            end = datetime.fromisoformat(args["end"].replace("Z", "+00:00"))
+            bars = await self._market.get_bars(instrument, timeframe, start, end)
+            return {"bars": self._serialize(bars)}
+        elif name == "get_option_bars":
+            if self._market is None:
+                raise ValueError("Market service is not available")
+            instrument = Instrument(
+                symbol=args["symbol"], asset_class=AssetClass.OPTION
+            )
             timeframe = Timeframe(args["timeframe"])
             start = datetime.fromisoformat(args["start"].replace("Z", "+00:00"))
             end = datetime.fromisoformat(args["end"].replace("Z", "+00:00"))
