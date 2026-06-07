@@ -11,7 +11,7 @@ from typing import AsyncIterator, List, Optional, Tuple
 
 import anyio
 from anyio.streams.memory import MemoryObjectSendStream
-from contracts.ports import Subscription
+from contracts.ports import HistoryStore, Subscription
 from contracts.schema import Event
 from loguru import logger
 
@@ -85,7 +85,7 @@ class InProcessBus:
         start: datetime,
         end: datetime,
         *,
-        history,  # HistoryStore — typed loosely here to avoid the bus importing persistence
+        history: HistoryStore,
     ) -> AsyncIterator[Event]:
         """Replay historical BAR events matching `subscription` in [start, end),
         sorted by `ts_open + timeframe.interval`. Iterator-only — does NOT
