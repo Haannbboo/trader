@@ -29,8 +29,8 @@ from persistence.engine import Database
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def _utc(yyyy: int, mm: int, dd: int, hh: int = 0) -> datetime:
-    return datetime(yyyy, mm, dd, hh, tzinfo=timezone.utc)
+def _utc(yyyy: int, mm: int, dd: int, hh: int = 0, mi: int = 0) -> datetime:
+    return datetime(yyyy, mm, dd, hh, mi, tzinfo=timezone.utc)
 
 
 def _instrument(symbol: str = "AAPL") -> Instrument:
@@ -117,3 +117,52 @@ async def test_replay_single_instrument_single_timeframe_sorted(
         _utc(2026, 1, 3),
     ]
     assert all(ev.type == EventType.BAR for ev in events)
+
+
+# ---------------------------------------------------------------------------
+# Multi-timeframe interleave — bars from different timeframes sort by
+# ts_open + interval, not by ts_open alone.
+# ---------------------------------------------------------------------------
+async def test_replay_multi_timeframe_interleaves_by_open_plus_interval(
+    tmp_db: Database,
+) -> None:
+    """An M5 bar that opens at 09:05 sorts AFTER an M1 bar that opens at
+    09:02 (M1 closes at 09:03; M5 closes at 09:10) and BEFORE nothing in
+    this fixture. The sort key is `ts_open + interval`, not `ts_open` alone —
+    if it were `ts_open` alone, the M5 bar would come first (its ts_open is
+    09:05, the latest in the input), but with the +interval key it sorts
+    last (its ts_event is 09:10)."""
+    bus = InProcessBus()
+    history = Repository(tmp_db)
+
+    bars = [
+        _bar("AAPL", _utc(2026, 1, 1, 9, 0), timeframe=Timeframe.M1),   # closes 09:01
+        _bar("AAPL", _utc(2026, 1, 1, 9, 5), timeframe=Timeframe.M5),   # closes 09:10
+        _bar("AAPL", _utc(2026, 1, 1, 9, 1), timeframe=Timeframe.M1),   # closes 09:02
+        _bar("AAPL", _utc(2026, 1, 1, 9, 2), timeframe=Timeframe.M1),   # closes 09:03
+    ]
+    await _write_bars(tmp_db, bars, source="test")
+
+    sub = Subscription(
+        event_types=(EventType.BAR,),
+        instruments=(_instrument("AAPL"),),
+    )
+    events: List[Event] = []
+    async for ev in bus.replay(
+        sub, _utc(2026, 1, 1, 9, 0), _utc(2026, 1, 1, 10, 0), history=history
+    ):
+        events.append(ev)
+
+    # Expected order by ts_event (ts_open + interval):
+    #   09:00 M1 -> ts_event 09:01
+    #   09:01 M1 -> ts_event 09:02
+    #   09:02 M1 -> ts_event 09:03
+    #   09:05 M5 -> ts_event 09:10
+    expected = [
+        (_utc(2026, 1, 1, 9, 0), Timeframe.M1),
+        (_utc(2026, 1, 1, 9, 1), Timeframe.M1),
+        (_utc(2026, 1, 1, 9, 2), Timeframe.M1),
+        (_utc(2026, 1, 1, 9, 5), Timeframe.M5),
+    ]
+    actual = [(ev.payload.ts_open, ev.payload.timeframe) for ev in events]
+    assert actual == expected
