@@ -196,7 +196,10 @@ async def test_replay_multi_instrument_merges_in_time_order(
         events.append(ev)
 
     assert [ev.payload.instrument.symbol for ev in events] == [
-        "AAPL", "MSFT", "MSFT", "AAPL",
+        "AAPL",
+        "MSFT",
+        "MSFT",
+        "AAPL",
     ]
     assert [ev.payload.ts_open for ev in events] == [
         _utc(2026, 1, 1),
@@ -204,3 +207,73 @@ async def test_replay_multi_instrument_merges_in_time_order(
         _utc(2026, 1, 2),
         _utc(2026, 1, 3),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Synthetic Event envelope shape
+# ---------------------------------------------------------------------------
+async def test_replay_yields_synthetic_event_envelope(tmp_db: Database) -> None:
+    bus = InProcessBus()
+    history = Repository(tmp_db)
+
+    bars = [
+        _bar("AAPL", _utc(2026, 1, 1), timeframe=Timeframe.H1),
+    ]
+    await _write_bars(tmp_db, bars, source="test")
+
+    sub = Subscription(
+        event_types=(EventType.BAR,),
+        instruments=(_instrument("AAPL"),),
+    )
+    before = datetime.now(timezone.utc)
+    events: List[Event] = []
+    async for ev in bus.replay(
+        sub, _utc(2026, 1, 1), _utc(2026, 1, 2), history=history
+    ):
+        events.append(ev)
+    after = datetime.now(timezone.utc)
+
+    assert len(events) == 1
+    ev = events[0]
+
+    # payload is the original Bar
+    assert ev.payload == bars[0]
+    assert ev.type == EventType.BAR
+
+    # ts_event = ts_open + interval (matches sort key)
+    assert ev.ts_event == _utc(2026, 1, 1) + Timeframe.H1.interval
+
+    # ts_ingest is between before and after (synthetic, ~now())
+    assert before <= ev.ts_ingest <= after
+
+    # source is the magic string for replay
+    assert ev.source == "replay"
+
+    # event_id is a fresh UUID (not the bar's, not from the DB)
+    from uuid import UUID
+    assert isinstance(ev.event_id, UUID)
+
+
+async def test_replay_event_ids_are_unique_across_yields(tmp_db: Database) -> None:
+    bus = InProcessBus()
+    history = Repository(tmp_db)
+
+    bars = [
+        _bar("AAPL", _utc(2026, 1, 1), timeframe=Timeframe.D1),
+        _bar("AAPL", _utc(2026, 1, 2), timeframe=Timeframe.D1),
+        _bar("AAPL", _utc(2026, 1, 3), timeframe=Timeframe.D1),
+    ]
+    await _write_bars(tmp_db, bars, source="test")
+
+    sub = Subscription(
+        event_types=(EventType.BAR,),
+        instruments=(_instrument("AAPL"),),
+    )
+    events: List[Event] = []
+    async for ev in bus.replay(
+        sub, _utc(2026, 1, 1), _utc(2026, 1, 4), history=history
+    ):
+        events.append(ev)
+
+    assert len(events) == 3
+    assert len({ev.event_id for ev in events}) == 3  # all distinct
