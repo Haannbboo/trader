@@ -84,18 +84,30 @@ class InProcessBus:
         subscription: Subscription,
         start: datetime,
         end: datetime,
+        *,
+        history,  # HistoryStore — typed loosely here to avoid the bus importing persistence
     ) -> AsyncIterator[Event]:
-        """Replay historical events matching `subscription` in [start, end).
+        """Replay historical BAR events matching `subscription` in [start, end),
+        sorted by `ts_open + timeframe.interval`. Iterator-only — does NOT
+        push to existing subscribers.
 
-        STUB: not implemented yet. The live stream only retains what fits
-        under MAXLEN; replay over long horizons needs a backfill store (cold
-        cache of older events). Wire this up after packages/persistence
-        is in place — likely a Redis Stream range scan for the warm window
-        and a separate store (S3 / object storage) for anything older.
+        Caller supplies `history` per-call. The bus does not own a HistoryStore;
+        the application layer (live/main.py or backtest/main.py) constructs one
+        and threads it through.
         """
-        raise NotImplementedError
+        if not subscription.instruments:
+            raise ValueError(
+                "InProcessBus.replay() requires subscription.instruments to be "
+                "non-empty; the HistoryStore cannot enumerate instruments."
+            )
+        # FUTURE: k-way merge across event types (bars, news, fills). The bar
+        # ordering key is ts_open + interval; the news key is published_at; the
+        # fill key is ts_event. When multi-event-type replay lands, switch this
+        # loop to a k-way heap that yields events in normalized-time order so a
+        # downstream consumer (RSI on bars + sentiment on news) can fold both
+        # into one timeline.
         if False:
-            yield  # make this an async generator so the AsyncIterator type is honest
+            yield  # make this an async generator so AsyncIterator is honest
 
     def _cleanup_closed_subscribers(self) -> None:
         """Cleans up inactive streams from the list."""
