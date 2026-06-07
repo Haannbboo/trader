@@ -37,6 +37,8 @@ from contracts import (
     TimeInForce,
 )
 
+from tools.mcp import McpClient
+
 
 class ToolLayer:
     def __init__(
@@ -45,6 +47,7 @@ class ToolLayer:
         market: Optional[MarketDataService] = None,
         news: Optional[NewsService] = None,
         features: Optional[FeatureService] = None,
+        mcp_configs: Optional[list[dict[str, Any]]] = None,
     ) -> None:
         """Holds one reference PER DOMAIN (not per source). Optional ones may be
         None in v1; tool_specs() only advertises tools whose service is present."""
@@ -52,6 +55,58 @@ class ToolLayer:
         self._market = market
         self._news = news
         self._features = features
+        self._mcp_clients: list[McpClient] = []
+        if mcp_configs:
+            for cfg in mcp_configs:
+                if cfg.get("enabled", True):
+                    self._mcp_clients.append(
+                        McpClient(
+                            name=cfg["name"],
+                            url=cfg["url"],
+                            tools_filter=cfg.get("tools"),
+                        )
+                    )
+
+    async def initialize(self) -> None:
+        """Asynchronously initialize all enabled MCP clients and fetch their tool definitions."""
+        for client in self._mcp_clients:
+            await client.list_tools()
+
+        # Check for duplicate tool names across MCP clients and native tools
+        seen_tools: dict[str, str] = (
+            {}
+        )  # tool_name -> source ("native" or "mcp:{client_name}")
+        native_names = {
+            "get_balance",
+            "get_positions",
+            "place_order",
+            "cancel_order",
+            "get_stock_quote",
+            "get_option_quote",
+            "get_stock_bars",
+            "get_option_bars",
+            "query_news",
+            "get_factor",
+        }
+        for name in native_names:
+            seen_tools[name] = "native"
+
+        for client in self._mcp_clients:
+            for spec in client.cached_specs:
+                tool_name = spec.get("name")
+                if not tool_name:
+                    continue
+                if tool_name in seen_tools:
+                    raise ValueError(
+                        f"Duplicate tool name '{tool_name}' detected. "
+                        f"Exposed by both '{seen_tools[tool_name]}' and MCP client '{client.name}'."
+                    )
+                seen_tools[tool_name] = f"mcp:{client.name}"
+
+    async def close(self) -> None:
+        """Asynchronously close all MCP clients."""
+        for client in self._mcp_clients:
+            await client.close()
 
     def tool_specs(self) -> list[dict]:
         """Pi Agent tool schemas. One spec per capability of each PRESENT service.
@@ -303,6 +358,15 @@ class ToolLayer:
                 }
             )
 
+        for client in self._mcp_clients:
+            for spec in client.cached_specs:
+                mapped_spec = dict(spec)
+                schema = mapped_spec.get("inputSchema")
+                if not schema:
+                    schema = {"type": "object", "properties": {}}
+                mapped_spec["parameters"] = schema
+                specs.append(mapped_spec)
+
         return specs
 
     async def dispatch(self, name: str, args: dict) -> dict:
@@ -395,6 +459,10 @@ class ToolLayer:
             val = await self._features.get_value(args["feature"], instrument)
             return self._serialize(val)
         else:
+            for client in self._mcp_clients:
+                if any(spec["name"] == name for spec in client.cached_specs):
+                    res = await client.call_tool(name, args)
+                    return self._serialize(res)
             raise ValueError(f"Unknown tool name: {name}")
 
     def stream_specs(self) -> list[dict]:
