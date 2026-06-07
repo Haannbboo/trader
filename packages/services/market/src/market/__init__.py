@@ -107,6 +107,13 @@ class MarketService(MarketDataService):
         )
 
         # 2. Check coverage: are any expected bars missing?
+        # NOTE: We use a simple boundary check (first and last bar) rather than
+        # counting bars or verifying spacing. Any logic that inspects the bars
+        # themselves (whether checking counts or looping through timestamps to
+        # find gaps) will always treat natural data gaps (weekends, holidays, or
+        # illiquid periods) as missing fetches, causing permanent cache-miss loops.
+        # A future improvement to eliminate these false positives is to track
+        # successfully fetched intervals in a metadata table.
         missing = True
         if local_bars:
             duration = _timeframe_duration(timeframe)
