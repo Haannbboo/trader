@@ -45,21 +45,31 @@ def load_fixture(name: str) -> Any:
 class FakeStockHistoricalClient:
     def __init__(self) -> None:
         self.bars_payload = load_fixture("stock_bars.json")
+        self.quote_payload = load_fixture("stock_quote.json")
         self.last_request: Any = None
 
     def get_stock_bars(self, request: Any) -> Any:
         self.last_request = request
         return {"AAPL": self.bars_payload["bars"]}
 
+    def get_stock_latest_quote(self, request: Any) -> Any:
+        self.last_request = request
+        return {"AAPL": self.quote_payload}
+
 
 class FakeOptionHistoricalClient:
     def __init__(self) -> None:
         self.bars_payload = load_fixture("option_bars.json")
+        self.quote_payload = load_fixture("option_quote.json")
         self.last_request: Any = None
 
     def get_option_bars(self, request: Any) -> Any:
         self.last_request = request
         return {"AAPL240119C00150000": self.bars_payload["bars"]}
+
+    def get_option_latest_quote(self, request: Any) -> Any:
+        self.last_request = request
+        return {"AAPL240119C00150000": self.quote_payload}
 
 
 class FakeStockHistoricalDtoClient:
@@ -648,3 +658,75 @@ def test_alpaca_adapter_construction_does_not_import_alpaca_py() -> None:
         assert option.historical_client is not None
     finally:
         pass
+
+
+@pytest.mark.asyncio
+async def test_alpaca_stock_get_quote_normalizes_fixture() -> None:
+    client = FakeStockHistoricalClient()
+    adapter = AlpacaStockMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=client,
+        feed="sip",
+    )
+    instrument = Instrument(symbol="AAPL", asset_class=AssetClass.EQUITY)
+
+    # 1. Default feed from constructor ("sip")
+    quote = await adapter.get_quote(instrument)
+    assert quote.instrument.symbol == "AAPL"
+    assert quote.bid == Decimal("150.45")
+    assert quote.ask == Decimal("150.50")
+    assert quote.bid_size == Decimal("100")
+    assert quote.ask_size == Decimal("200")
+    assert quote.ts_event == datetime(
+        2024, 1, 19, 14, 30, 0, 123456, tzinfo=timezone.utc
+    )
+    assert client.last_request.symbol_or_symbols == "AAPL"
+    assert client.last_request.feed.name == "SIP"
+
+    # 2. Feed override parameter ("delayed_sip")
+    await adapter.get_quote(instrument, feed="delayed_sip")
+    assert client.last_request.feed.name == "DELAYED_SIP"
+
+    # 3. Invalid feed parameter
+    with pytest.raises(ValueError, match="feed must be one of"):
+        await adapter.get_quote(instrument, feed="invalid_feed")
+
+
+@pytest.mark.asyncio
+async def test_alpaca_option_get_quote_normalizes_fixture() -> None:
+    client = FakeOptionHistoricalClient()
+    adapter = AlpacaOptionMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=client,
+        feed="opra",
+    )
+    instrument = Instrument(
+        symbol="AAPL",
+        asset_class=AssetClass.OPTION,
+        strike=Decimal("150.00"),
+        right=OptionRight.CALL,
+        expiry=datetime(2024, 1, 19, tzinfo=timezone.utc),
+    )
+
+    # 1. Default feed from constructor ("opra")
+    quote = await adapter.get_quote(instrument)
+    assert quote.instrument.symbol == "AAPL"
+    assert quote.bid == Decimal("5.20")
+    assert quote.ask == Decimal("5.30")
+    assert quote.bid_size == Decimal("50")
+    assert quote.ask_size == Decimal("75")
+    assert quote.ts_event == datetime(
+        2024, 1, 19, 14, 30, 0, 123456, tzinfo=timezone.utc
+    )
+    assert client.last_request.symbol_or_symbols == "AAPL240119C00150000"
+    assert client.last_request.feed.name == "OPRA"
+
+    # 2. Feed override parameter ("indicative")
+    await adapter.get_quote(instrument, feed="indicative")
+    assert client.last_request.feed.name == "INDICATIVE"
+
+    # 3. Invalid feed parameter
+    with pytest.raises(ValueError, match="feed must be one of"):
+        await adapter.get_quote(instrument, feed="invalid_feed")

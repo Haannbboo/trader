@@ -3,7 +3,7 @@ tools — ToolLayer v1. Wraps domain SERVICES into Pi Agent tools.
 
 The dimension that matters here is DOMAIN/CAPABILITY, not source count:
   - "how many market sources exist" is invisible here — MarketDataService already
-    aggregated them behind one get_quote. Adding the 50th polygon-vs-ibkr source
+    aggregated them behind get_stock_quote/get_option_quote. Adding the 50th polygon-vs-ibkr source
     changes nothing in this file.
   - what IS modeled here: the kinds of capabilities (quote, bars, news, balance,
     order, factor) — one tool per capability, each routed to the owning service.
@@ -153,20 +153,30 @@ class ToolLayer:
         if self._market is not None:
             specs.append(
                 {
-                    "name": "get_quote",
-                    "description": "Fetch the current bid/ask quote for an instrument.",
+                    "name": "get_stock_quote",
+                    "description": "Fetch the current bid/ask quote for a stock instrument.",
                     "parameters": {
                         "type": "object",
                         "properties": {
                             "symbol": {
                                 "type": "string",
-                                "description": "Symbol of the instrument.",
+                                "description": "Symbol of the stock (e.g. AAPL).",
                             },
-                            "asset_class": {
+                        },
+                        "required": ["symbol"],
+                    },
+                }
+            )
+            specs.append(
+                {
+                    "name": "get_option_quote",
+                    "description": "Fetch the current bid/ask quote for an option instrument.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "symbol": {
                                 "type": "string",
-                                "enum": ["equity", "option", "crypto"],
-                                "default": "equity",
-                                "description": "Asset class of the instrument.",
+                                "description": "OCC Symbol of the option (e.g. AAPL260619C00150000).",
                             },
                         },
                         "required": ["symbol"],
@@ -299,7 +309,7 @@ class ToolLayer:
         """Route ONE tool call to the owning service method; validate args;
         serialize the result. Maps:
             get_balance/get_positions/place_order/cancel_order -> account
-            get_quote/get_bars                                 -> market
+            get_stock_quote/get_option_quote/get_bars          -> market
             query_news                                         -> news
             get_factor                                         -> features
         place_order goes through AccountService (-> guardrail); the tool layer
@@ -317,10 +327,20 @@ class ToolLayer:
         elif name == "cancel_order":
             await self._account.cancel_order(args["broker_order_id"])
             return {"status": "success"}
-        elif name == "get_quote":
+        elif name == "get_stock_quote":
             if self._market is None:
                 raise ValueError("Market service is not available")
-            instrument = self._instrument_from_args(args)
+            instrument = Instrument(
+                symbol=args["symbol"], asset_class=AssetClass.EQUITY
+            )
+            quote = await self._market.get_quote(instrument)
+            return self._serialize(quote)
+        elif name == "get_option_quote":
+            if self._market is None:
+                raise ValueError("Market service is not available")
+            instrument = Instrument(
+                symbol=args["symbol"], asset_class=AssetClass.OPTION
+            )
             quote = await self._market.get_quote(instrument)
             return self._serialize(quote)
         elif name == "get_stock_bars":

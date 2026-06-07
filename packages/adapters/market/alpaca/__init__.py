@@ -21,9 +21,8 @@ only source-specific bits filled in here are:
   * ``_subscribe``              — websocket plumbing (handler -> asyncio queue)
   * ``_wrap``                   — attach source name + ts_event to the envelope
 
-``get_quote`` is intentionally NOT implemented in either adapter; it inherits
-``NotImplementedError`` from the base. Add when a snapshot-quote read path
-becomes a real need.
+``get_quote`` is implemented in both adapters to fetch the latest (snapshot) quote
+for a given instrument, routing it to the correct underlying asset-class REST API.
 
 ``alpaca-py`` is imported LAZILY (inside the build/connect/subscribe hooks) so
 that registry discovery still works when the project is installed without the
@@ -71,6 +70,8 @@ from plugins import register
 class _HistoricalClientLike(Protocol):
     def get_stock_bars(self, request: Any) -> Any: ...
     def get_option_bars(self, request: Any) -> Any: ...
+    def get_stock_latest_quote(self, request: Any) -> Any: ...
+    def get_option_latest_quote(self, request: Any) -> Any: ...
 
 
 @runtime_checkable
@@ -234,8 +235,25 @@ class _AlpacaMarketAdapterBase(BaseMarketAdapter):
                     pass
 
     # --- MarketSourcePort surface ---
-    # get_quote is intentionally not implemented: it inherits the base's
-    # NotImplementedError. Add when the read path needs a snapshot quote.
+    async def get_quote(
+        self,
+        instrument: Instrument,
+        feed: str | None = None,
+    ) -> Quote:
+        """Fetch the latest quote for the given instrument.
+
+        NOTE: This method only fetches the latest quote (snapshot) from Alpaca,
+        and does not retrieve historical quote archives.
+        """
+        self._assert_supported(instrument)
+        await self.limiter.acquire()
+        client = self._require_historical_client()
+        symbol = self._native_symbol(instrument)
+        request = self._build_quote_request(symbol, feed)
+        response = await asyncio.to_thread(self._fetch_quote, client, request)
+        raw_quote = self._extract_quote_payload(response, symbol)
+        return self._normalize_historical_quote_payload(raw_quote, instrument)
+
     async def get_bars(
         self,
         instrument: Instrument,
@@ -288,6 +306,36 @@ class _AlpacaMarketAdapterBase(BaseMarketAdapter):
         broad ``except AttributeError`` fallback that masks internal SDK bugs.
         """
         raise NotImplementedError
+
+    def _build_quote_request(self, symbol: str, feed: str | None = None) -> Any:
+        """Build a StockLatestQuoteRequest/OptionLatestQuoteRequest; subclasses
+        pick the request class and validate the feed setting."""
+        raise NotImplementedError
+
+    def _fetch_quote(self, client: _HistoricalClientLike, request: Any) -> Any:
+        """Dispatch to the correct client method to fetch latest quote."""
+        raise NotImplementedError
+
+    def _extract_quote_payload(self, response: Any, symbol: str) -> Any:
+        """Extract the latest quote payload for the symbol."""
+        if isinstance(response, dict):
+            val = response.get(symbol) or response.get(symbol.upper())
+            if val is not None:
+                return val
+        data = getattr(response, "data", None)
+        if isinstance(data, dict):
+            val = data.get(symbol) or data.get(symbol.upper())
+            if val is not None:
+                return val
+        raise ValueError(f"No latest quote returned for {symbol}")
+
+    def _normalize_historical_quote_payload(
+        self,
+        raw_quote: Any,
+        instrument: Instrument,
+    ) -> Quote:
+        payload = _as_dict(raw_quote)
+        return self._normalize_quote({**payload, "_instrument": instrument})
 
     def _extract_bar_payloads(self, response: Any, symbol: str) -> list[Any]:
         """alpaca returns ``{symbol: [bar, bar, ...]}`` for raw_data=True and
@@ -523,7 +571,7 @@ class AlpacaStockMarketAdapter(_AlpacaMarketAdapterBase):
     # Allowed values for the constructor's `feed` kwarg. alpaca-py supports
     # more (OTC, CRN), but for this adapter we only route through the two
     # equity feeds most callers care about. Add more here when needed.
-    _ALLOWED_FEEDS = ("sip", "iex")
+    _ALLOWED_FEEDS = ("sip", "iex", "delayed_sip")
 
     def __init__(
         self,
@@ -575,6 +623,25 @@ class AlpacaStockMarketAdapter(_AlpacaMarketAdapterBase):
 
     def _fetch_bars(self, client: _HistoricalClientLike, request: Any) -> Any:
         return client.get_stock_bars(request)
+
+    def _build_quote_request(self, symbol: str, feed: str | None = None) -> Any:
+        from alpaca.data.enums import DataFeed
+        from alpaca.data.requests import StockLatestQuoteRequest
+
+        feed_val = feed or self.feed
+        normalized = feed_val.lower()
+        if normalized not in self._ALLOWED_FEEDS:
+            raise ValueError(
+                f"feed must be one of {self._ALLOWED_FEEDS}, got {feed_val!r}"
+            )
+
+        return StockLatestQuoteRequest(
+            symbol_or_symbols=symbol,
+            feed=getattr(DataFeed, normalized.upper()),
+        )
+
+    def _fetch_quote(self, client: _HistoricalClientLike, request: Any) -> Any:
+        return client.get_stock_latest_quote(request)
 
 
 # ---------------------------------------------------------------------------
@@ -638,6 +705,25 @@ class AlpacaOptionMarketAdapter(_AlpacaMarketAdapterBase):
 
     def _fetch_bars(self, client: _HistoricalClientLike, request: Any) -> Any:
         return client.get_option_bars(request)
+
+    def _build_quote_request(self, symbol: str, feed: str | None = None) -> Any:
+        from alpaca.data.enums import OptionsFeed
+        from alpaca.data.requests import OptionLatestQuoteRequest
+
+        feed_val = feed or self.feed
+        normalized = feed_val.lower()
+        if normalized not in self._ALLOWED_FEEDS:
+            raise ValueError(
+                f"feed must be one of {self._ALLOWED_FEEDS}, got {feed_val!r}"
+            )
+
+        return OptionLatestQuoteRequest(
+            symbol_or_symbols=symbol,
+            feed=getattr(OptionsFeed, normalized.upper()),
+        )
+
+    def _fetch_quote(self, client: _HistoricalClientLike, request: Any) -> Any:
+        return client.get_option_latest_quote(request)
 
     def _native_symbol(self, instrument: Instrument) -> str:
         if instrument.asset_class is not AssetClass.OPTION:
