@@ -19,6 +19,8 @@ def _sanitize_url(url: str) -> str:
     """Strip query params and redact credentials from URL for safe logging."""
     try:
         parsed = urlparse(url)
+        if not parsed.scheme or not parsed.netloc:
+            raise ValueError("Invalid URL: missing scheme or netloc")
         if parsed.username or parsed.password:
             netloc = parsed.hostname or ""
             if parsed.port:

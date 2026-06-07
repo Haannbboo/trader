@@ -188,7 +188,7 @@ def test_url_sanitization() -> None:
         _sanitize_url("https://user:pass@mcp.host.com:8080/mcp")
         == "https://***:***@mcp.host.com:8080/mcp"
     )
-    assert _sanitize_url("invalid_url_###") == "invalid_url_"
+    assert _sanitize_url("invalid_url_###") == "invalid-url"
 
 
 @pytest.mark.asyncio
