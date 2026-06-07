@@ -137,6 +137,11 @@ class PersistenceWriter:
         self._batch_size = batch_size
         self._writer = DbWriter(db)
 
+    @property
+    def writer(self) -> DbWriter:
+        """Expose the underlying DbWriter."""
+        return self._writer
+
     async def run(self) -> None:
         """Subscribe to the persisted EventTypes and write each to its table.
         Runs forever (until cancelled on shutdown)."""

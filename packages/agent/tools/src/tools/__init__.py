@@ -221,7 +221,7 @@ class ToolLayer:
                         "properties": {
                             "symbol": {
                                 "type": "string",
-                                "description": "OCC Symbol of the option (e.g. AAPL260619C00150000) in UTC.",
+                                "description": "OCC Symbol of the option (e.g. AAPL260619C00150000).",
                             },
                             "timeframe": {
                                 "type": "string",
@@ -309,7 +309,7 @@ class ToolLayer:
         """Route ONE tool call to the owning service method; validate args;
         serialize the result. Maps:
             get_balance/get_positions/place_order/cancel_order -> account
-            get_stock_quote/get_option_quote/get_bars          -> market
+            get_stock_quote/get_option_quote/get_stock_bars/get_option_bars -> market
             query_news                                         -> news
             get_factor                                         -> features
         place_order goes through AccountService (-> guardrail); the tool layer
@@ -451,13 +451,6 @@ class ToolLayer:
         if isinstance(data, Decimal):
             return str(data)
         return data
-
-    @staticmethod
-    def _instrument_from_args(args: dict) -> Instrument:
-        return Instrument(
-            symbol=args["symbol"],
-            asset_class=AssetClass(args.get("asset_class", "equity")),
-        )
 
     # --- small, fully-written helper: building an Order from tool args ---
     @staticmethod

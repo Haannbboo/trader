@@ -15,4 +15,4 @@ from persistence.engine import Database
 from persistence.repository import Repository
 from persistence.writer import DbWriter, PersistenceWriter
 
-__all__ = ["Database", "Repository", "PersistenceWriter", "DbWriter"]
+__all__ = ["Database", "DbWriter", "PersistenceWriter", "Repository"]

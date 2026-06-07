@@ -234,7 +234,7 @@ async def run(config_path: str = "config/live.yaml") -> None:
             sources=market_sources,
             bus=bus,
             repository=Repository(db) if db is not None else None,
-            writer=persistence._writer if persistence is not None else None,
+            writer=persistence.writer if persistence is not None else None,
         )
         if market_sources
         else None

@@ -23,7 +23,11 @@ from persistence import DbWriter
 
 
 def _timeframe_duration(tf: Timeframe) -> float:
-    """Helper to convert Timeframe enum/value into duration in seconds."""
+    """Helper to convert Timeframe enum/value into duration in seconds.
+
+    Raises:
+        ValueError: If the timeframe unit is unsupported.
+    """
     val = tf.value
     unit = val[-1]
     num = int(val[:-1])
@@ -35,7 +39,7 @@ def _timeframe_duration(tf: Timeframe) -> float:
         return float(num * 3600)
     elif unit == "d":
         return float(num * 86400)
-    return 60.0
+    raise ValueError(f"Unsupported timeframe unit: {unit!r} (from {tf})")
 
 
 class MarketService(MarketDataService):
@@ -152,10 +156,12 @@ class MarketService(MarketDataService):
             # Map requested MarketChannel enums to their corresponding EventType enums.
             event_types = []
             for chan in channels:
-                if chan == MarketChannel.QUOTES:
-                    event_types.append(EventType.QUOTE)
+                if chan in (MarketChannel.QUOTES, MarketChannel.TRADES):
+                    if EventType.QUOTE not in event_types:
+                        event_types.append(EventType.QUOTE)
                 elif chan == MarketChannel.BARS:
-                    event_types.append(EventType.BAR)
+                    if EventType.BAR not in event_types:
+                        event_types.append(EventType.BAR)
 
             sub = Subscription(
                 instruments=tuple(instruments),

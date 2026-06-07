@@ -368,3 +368,39 @@ async def test_market_service_read_through_cache(tmp_path) -> None:
 
     # Clean up DB connection
     await db.close()
+
+
+def test_timeframe_duration_validation() -> None:
+    from market import _timeframe_duration
+
+    # Valid units
+    assert _timeframe_duration(Timeframe.M1) == 60.0
+    assert _timeframe_duration(Timeframe.H1) == 3600.0
+    assert _timeframe_duration(Timeframe.D1) == 86400.0
+
+    # Invalid unit test
+    class CustomTimeframe:
+        value = "5x"
+
+    with pytest.raises(ValueError, match="Unsupported timeframe unit"):
+        _timeframe_duration(CustomTimeframe)  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_market_service_subscribe_trades_event_types() -> None:
+    source = MockMarketSource("stock_source", (AssetClass.EQUITY,))
+    bus = MockBus()
+    service = MarketService(sources=[source], bus=bus)  # type: ignore[arg-type]
+
+    instrument = Instrument(symbol="AAPL", asset_class=AssetClass.EQUITY)
+
+    # Subscribe to TRADES channel
+    iterator = service.subscribe([instrument], [MarketChannel.TRADES])
+    try:
+        async for _ in iterator:
+            break
+    finally:
+        await iterator.aclose()
+
+    assert bus.subscribed_subscription is not None
+    assert EventType.QUOTE in bus.subscribed_subscription.event_types
