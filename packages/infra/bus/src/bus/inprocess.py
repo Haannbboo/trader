@@ -94,6 +94,14 @@ class InProcessBus:
         Caller supplies `history` per-call. The bus does not own a HistoryStore;
         the application layer (live/main.py or backtest/main.py) constructs one
         and threads it through.
+
+        Known gaps (intentional this iteration):
+        - `subscription.event_types` is ignored — every yielded event is
+          `EventType.BAR` regardless of the filter. The future k-way merge
+          across event types (bars, news, fills) will respect this filter.
+        - `subscription.sources` is ignored — the `Bar` DTO has no `source`
+          field, so per-source filtering has nothing to filter on. Revisit
+          when `BarRow.source` flows into the DTO.
         """
         if not subscription.instruments:
             raise ValueError(
