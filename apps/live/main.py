@@ -289,7 +289,9 @@ async def run(config_path: str = "config/live.yaml") -> None:
         market=market_service,
         news=news_service,
         features=feature_service,
+        mcp_configs=cfg.settings.agent.get("mcp_servers"),
     )
+    await tools.initialize()
 
     # 6. gateway
     gateway = AgentGateway(tool_layer=tools, bus=bus)
@@ -394,6 +396,7 @@ async def run(config_path: str = "config/live.yaml") -> None:
         except Exception:
             logger.exception("error stopping {}", name)
 
+    await tools.close()
     await bus.stop()
     if db is not None:
         await db.close()

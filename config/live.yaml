@@ -55,6 +55,15 @@ guardrails:
 agent:
   strategy: trend_following_agent
   react_loop_interval_seconds: 5.0
+  mcp_servers:
+    - name: sellthenews
+      url: "https://mcp.sellthenews.org/mcp"
+      enabled: true
+      tools:
+        - get_stock_news
+        - get_options_data
+        - search_news
+        - get_wsb_analysis
 
 # Non-adapter infrastructure (event bus, persistence, ...). `bus.url` is
 # intentionally left blank here so the live profile doesn't accidentally
