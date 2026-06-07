@@ -6,13 +6,13 @@ in-memory per-subscriber queues. Implements the Bus protocol so RedisStreamsBus
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import AsyncIterator, List, Optional, Tuple
 
 import anyio
 from anyio.streams.memory import MemoryObjectSendStream
 from contracts.ports import HistoryStore, Subscription
-from contracts.schema import Event
+from contracts.schema import Bar, Event, EventType, Timeframe
 from loguru import logger
 
 from ._filters import matches_subscription
@@ -106,8 +106,22 @@ class InProcessBus:
         # loop to a k-way heap that yields events in normalized-time order so a
         # downstream consumer (RSI on bars + sentiment on news) can fold both
         # into one timeline.
-        if False:
-            yield  # make this an async generator so AsyncIterator is honest
+        bars: list[Bar] = []
+        for inst in subscription.instruments:
+            for tf in Timeframe:  # timeframe filter is not on Subscription this iteration
+                bars.extend(await history.fetch_bars(inst, tf, start, end))
+
+        bars.sort(key=lambda b: b.ts_open + b.timeframe.interval)
+
+        for bar in bars:
+            yield Event(
+                type=EventType.BAR,
+                source="replay",  # Bar has no `source` field; revisit when BarRow.source flows into the DTO
+                payload=bar,
+                ts_event=bar.ts_open + bar.timeframe.interval,
+                ts_ingest=datetime.now(timezone.utc),  # synthetic
+                # event_id auto-generated
+            )
 
     def _cleanup_closed_subscribers(self) -> None:
         """Cleans up inactive streams from the list."""

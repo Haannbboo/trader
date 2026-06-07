@@ -77,3 +77,43 @@ async def test_replay_empty_instruments_raises_value_error(tmp_db: Database) -> 
             sub, _utc(2026, 1, 1), _utc(2026, 1, 2), history=history
         ):
             pass
+
+
+# ---------------------------------------------------------------------------
+# Basic read: one instrument, one timeframe, sorted by ts_open + interval
+# ---------------------------------------------------------------------------
+async def test_replay_single_instrument_single_timeframe_sorted(
+    tmp_db: Database,
+) -> None:
+    """Bars come back in `ts_open + interval` order, even when the DB has them
+    in a different order (the Repository.fetch_bars() already orders by ts_open
+    ASC, so this test pins down the sort key across timeframes; here we just
+    verify the basic happy path."""
+    bus = InProcessBus()
+    history = Repository(tmp_db)
+
+    # Insert out of order on purpose.
+    bars = [
+        _bar("AAPL", _utc(2026, 1, 3), timeframe=Timeframe.D1),
+        _bar("AAPL", _utc(2026, 1, 1), timeframe=Timeframe.D1),
+        _bar("AAPL", _utc(2026, 1, 2), timeframe=Timeframe.D1),
+    ]
+    await _write_bars(tmp_db, bars, source="test")
+
+    sub = Subscription(
+        event_types=(EventType.BAR,),
+        instruments=(_instrument("AAPL"),),
+    )
+    events: List[Event] = []
+    async for ev in bus.replay(
+        sub, _utc(2026, 1, 1), _utc(2026, 1, 4), history=history
+    ):
+        events.append(ev)
+
+    assert len(events) == 3
+    assert [ev.payload.ts_open for ev in events] == [
+        _utc(2026, 1, 1),
+        _utc(2026, 1, 2),
+        _utc(2026, 1, 3),
+    ]
+    assert all(ev.type == EventType.BAR for ev in events)
