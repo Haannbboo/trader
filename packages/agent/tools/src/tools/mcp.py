@@ -9,9 +9,26 @@ from __future__ import annotations
 
 import json
 from typing import Any, Optional
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 from loguru import logger
+
+
+def _sanitize_url(url: str) -> str:
+    """Strip query params and redact credentials from URL for safe logging."""
+    try:
+        parsed = urlparse(url)
+        if parsed.username or parsed.password:
+            netloc = parsed.hostname or ""
+            if parsed.port:
+                netloc = f"{netloc}:{parsed.port}"
+            netloc = f"***:***@{netloc}"
+        else:
+            netloc = parsed.netloc
+        return urlunparse((parsed.scheme, netloc, parsed.path, "", "", ""))
+    except Exception:
+        return "invalid-url"
 
 
 class McpClient:
@@ -28,7 +45,7 @@ class McpClient:
         logger.info(
             "[MCP Client] Loading MCP server: name={} url={} tools={}",
             self.name,
-            self.url,
+            _sanitize_url(self.url),
             self.tools_filter,
         )
         self._client = httpx.AsyncClient(timeout=30.0)
@@ -65,15 +82,25 @@ class McpClient:
 
             tools = data.get("result", {}).get("tools", [])
 
+            # Validate each tool has the required structure (at minimum a non-empty name string)
+            valid_tools = [
+                t
+                for t in tools
+                if isinstance(t, dict)
+                and "name" in t
+                and isinstance(t["name"], str)
+                and t["name"].strip()
+            ]
+
             # Whitelist filtering:
             # - If '*' is in the list, allow all tools.
             # - If specific tools are listed, allow only those.
             # - Otherwise, allow none.
             if "*" in self.tools_filter:
-                filtered_tools = tools
+                filtered_tools = valid_tools
             elif self.tools_filter:
                 filtered_tools = [
-                    t for t in tools if t.get("name") in self.tools_filter
+                    t for t in valid_tools if t["name"] in self.tools_filter
                 ]
             else:
                 filtered_tools = []

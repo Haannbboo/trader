@@ -175,3 +175,78 @@ async def test_tool_layer_mcp_integration() -> None:
 
         # 4. Clean shutdown
         await layer.close()
+
+
+def test_url_sanitization() -> None:
+    from tools.mcp import _sanitize_url
+
+    assert (
+        _sanitize_url("https://mcp.sellthenews.org/mcp?key=123")
+        == "https://mcp.sellthenews.org/mcp"
+    )
+    assert (
+        _sanitize_url("https://user:pass@mcp.host.com:8080/mcp")
+        == "https://***:***@mcp.host.com:8080/mcp"
+    )
+    assert _sanitize_url("invalid_url_###") == "invalid_url_"
+
+
+@pytest.mark.asyncio
+async def test_tool_layer_duplicate_name_error() -> None:
+    # 1. Native collision
+    mcp_configs = [
+        {
+            "name": "test_mcp",
+            "url": "http://mock-mcp/mcp",
+            "enabled": True,
+            "tools": ["get_balance"],  # Native tool name collision!
+        }
+    ]
+    account = MockAccount()
+    layer = ToolLayer(account=account, mcp_configs=mcp_configs)
+
+    mock_list_response = MagicMock(spec=httpx.Response)
+    mock_list_response.status_code = 200
+    mock_list_response.headers = {"content-type": "text/event-stream"}
+    mock_list_response.text = (
+        "event: message\n"
+        'data: {"jsonrpc": "2.0", "id": 1, "result": {"tools": ['
+        '{"name": "get_balance", "description": "tool"}'
+        "]}}"
+    )
+    with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_list_response
+        with pytest.raises(ValueError) as exc:
+            await layer.initialize()
+        assert "Duplicate tool name 'get_balance' detected" in str(exc.value)
+    await layer.close()
+
+    # 2. Inter-MCP client collision
+    mcp_configs2 = [
+        {
+            "name": "mcp1",
+            "url": "http://mcp1/mcp",
+            "enabled": True,
+            "tools": ["toolA"],
+        },
+        {
+            "name": "mcp2",
+            "url": "http://mcp2/mcp",
+            "enabled": True,
+            "tools": ["toolA"],
+        },
+    ]
+    layer2 = ToolLayer(account=account, mcp_configs=mcp_configs2)
+    with patch.object(httpx.AsyncClient, "post", new_callable=AsyncMock) as mock_post:
+        # We need mock_list_response to return name: toolA for both
+        mock_list_response.text = (
+            "event: message\n"
+            'data: {"jsonrpc": "2.0", "id": 1, "result": {"tools": ['
+            '{"name": "toolA", "description": "tool"}'
+            "]}}"
+        )
+        mock_post.return_value = mock_list_response
+        with pytest.raises(ValueError) as exc:
+            await layer2.initialize()
+        assert "Duplicate tool name 'toolA' detected" in str(exc.value)
+    await layer2.close()
