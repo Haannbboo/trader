@@ -136,10 +136,10 @@ async def test_replay_multi_timeframe_interleaves_by_open_plus_interval(
     history = Repository(tmp_db)
 
     bars = [
-        _bar("AAPL", _utc(2026, 1, 1, 9, 0), timeframe=Timeframe.M1),   # closes 09:01
-        _bar("AAPL", _utc(2026, 1, 1, 9, 5), timeframe=Timeframe.M5),   # closes 09:10
-        _bar("AAPL", _utc(2026, 1, 1, 9, 1), timeframe=Timeframe.M1),   # closes 09:02
-        _bar("AAPL", _utc(2026, 1, 1, 9, 2), timeframe=Timeframe.M1),   # closes 09:03
+        _bar("AAPL", _utc(2026, 1, 1, 9, 0), timeframe=Timeframe.M1),  # closes 09:01
+        _bar("AAPL", _utc(2026, 1, 1, 9, 5), timeframe=Timeframe.M5),  # closes 09:10
+        _bar("AAPL", _utc(2026, 1, 1, 9, 1), timeframe=Timeframe.M1),  # closes 09:02
+        _bar("AAPL", _utc(2026, 1, 1, 9, 2), timeframe=Timeframe.M1),  # closes 09:03
     ]
     await _write_bars(tmp_db, bars, source="test")
 
@@ -166,3 +166,41 @@ async def test_replay_multi_timeframe_interleaves_by_open_plus_interval(
     ]
     actual = [(ev.payload.ts_open, ev.payload.timeframe) for ev in events]
     assert actual == expected
+
+
+# ---------------------------------------------------------------------------
+# Multi-instrument — bars from different symbols interleave in time order.
+# ---------------------------------------------------------------------------
+async def test_replay_multi_instrument_merges_in_time_order(
+    tmp_db: Database,
+) -> None:
+    bus = InProcessBus()
+    history = Repository(tmp_db)
+
+    bars = [
+        _bar("MSFT", _utc(2026, 1, 1), timeframe=Timeframe.D1),
+        _bar("AAPL", _utc(2026, 1, 1), timeframe=Timeframe.D1),
+        _bar("MSFT", _utc(2026, 1, 2), timeframe=Timeframe.D1),
+        _bar("AAPL", _utc(2026, 1, 3), timeframe=Timeframe.D1),
+    ]
+    await _write_bars(tmp_db, bars, source="test")
+
+    sub = Subscription(
+        event_types=(EventType.BAR,),
+        instruments=(_instrument("AAPL"), _instrument("MSFT")),
+    )
+    events: List[Event] = []
+    async for ev in bus.replay(
+        sub, _utc(2026, 1, 1), _utc(2026, 1, 4), history=history
+    ):
+        events.append(ev)
+
+    assert [ev.payload.instrument.symbol for ev in events] == [
+        "AAPL", "MSFT", "MSFT", "AAPL",
+    ]
+    assert [ev.payload.ts_open for ev in events] == [
+        _utc(2026, 1, 1),
+        _utc(2026, 1, 1),
+        _utc(2026, 1, 2),
+        _utc(2026, 1, 3),
+    ]
