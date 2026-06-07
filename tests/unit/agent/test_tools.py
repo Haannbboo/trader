@@ -141,8 +141,10 @@ def test_tool_specs_advertising() -> None:
     assert "get_positions" in names1
     assert "place_order" in names1
     assert "cancel_order" in names1
-    assert "get_quote" not in names1
-    assert "get_bars" not in names1
+    assert "get_stock_quote" not in names1
+    assert "get_option_quote" not in names1
+    assert "get_stock_bars" not in names1
+    assert "get_option_bars" not in names1
     assert "query_news" not in names1
     assert "get_factor" not in names1
 
@@ -156,7 +158,10 @@ def test_tool_specs_advertising() -> None:
     specs2 = layer2.tool_specs()
     names2 = [t["name"] for t in specs2]
     assert "get_balance" in names2
-    assert "get_quote" in names2
+    assert "get_stock_quote" in names2
+    assert "get_option_quote" in names2
+    assert "get_stock_bars" in names2
+    assert "get_option_bars" in names2
     assert "query_news" in names2
     assert "get_factor" in names2
 
@@ -204,15 +209,25 @@ async def test_dispatch_market_tools() -> None:
     market = MockMarketService()
     layer = ToolLayer(account, market=market)
 
-    # get_quote
-    quote_res = await layer.dispatch("get_quote", {"symbol": "AAPL"})
+    # get_stock_quote
+    quote_res = await layer.dispatch("get_stock_quote", {"symbol": "AAPL"})
     assert quote_res["bid"] == "180.50"
     assert quote_res["ask"] == "180.60"
     assert market.instrument_quote.symbol == "AAPL"
+    assert market.instrument_quote.asset_class == AssetClass.EQUITY
 
-    # get_bars
-    bars_res = await layer.dispatch(
-        "get_bars",
+    # get_option_quote
+    option_quote_res = await layer.dispatch(
+        "get_option_quote", {"symbol": "AAPL260619C00150000"}
+    )
+    assert option_quote_res["bid"] == "180.50"
+    assert option_quote_res["ask"] == "180.60"
+    assert market.instrument_quote.symbol == "AAPL260619C00150000"
+    assert market.instrument_quote.asset_class == AssetClass.OPTION
+
+    # get_stock_bars
+    stock_bars_res = await layer.dispatch(
+        "get_stock_bars",
         {
             "symbol": "AAPL",
             "timeframe": "1m",
@@ -220,8 +235,24 @@ async def test_dispatch_market_tools() -> None:
             "end": "2026-06-02T02:00:00Z",
         },
     )
-    assert len(bars_res["bars"]) == 1
-    assert bars_res["bars"][0]["close"] == "180.50"
+    assert len(stock_bars_res["bars"]) == 1
+    assert stock_bars_res["bars"][0]["close"] == "180.50"
+    assert market.bars_args[0].asset_class == AssetClass.EQUITY
+    assert market.bars_args[1] == Timeframe.M1
+
+    # get_option_bars
+    option_bars_res = await layer.dispatch(
+        "get_option_bars",
+        {
+            "symbol": "AAPL260619C00150000",
+            "timeframe": "1m",
+            "start": "2026-06-02T01:00:00Z",
+            "end": "2026-06-02T02:00:00Z",
+        },
+    )
+    assert len(option_bars_res["bars"]) == 1
+    assert option_bars_res["bars"][0]["close"] == "180.50"
+    assert market.bars_args[0].asset_class == AssetClass.OPTION
     assert market.bars_args[1] == Timeframe.M1
 
 

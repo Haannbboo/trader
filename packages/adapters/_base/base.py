@@ -16,7 +16,7 @@ An adapter NEVER reads os.environ. Credentials arrive as constructor kwargs,
 already resolved. The full chain:
 
   root .env            ALPACA_API_KEY=...   ALPACA_API_SECRET=...  (gitignored)
-  config/*.yaml        account.sources: [{name: alpaca, paper: true}]
+  config/*.yaml        account.sources: [{source: alpaca, paper: true}]
         |
         v
   ta.config.EnvSecretProvider.for_source("account", "alpaca")
@@ -27,7 +27,7 @@ already resolved. The full chain:
         {"api_key": "...", "api_secret": "...", "paper": True}
         |
         v
-  registry.build_sources("account", [SourceConfig(name="alpaca", params=THAT)])
+  registry.build_sources("account", [SourceConfig(source="alpaca", params=THAT)])
         |   does:  AlpacaAccountAdapter(**params)   # the dict is SPLATTED to kwargs
         v
   AlpacaAccountAdapter.__init__(self, api_key, api_secret, paper=False, **params)

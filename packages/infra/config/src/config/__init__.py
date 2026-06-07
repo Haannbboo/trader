@@ -10,7 +10,7 @@ Path of an alpaca key:
     .env: ALPACA_API_KEY / ALPACA_API_SECRET
         -> EnvSecretProvider (prefix "ALPACA_" -> source "alpaca")
         -> AppConfig.source_params("account", "alpaca")  (merged with yaml)
-        -> registry.build_sources("account", [SourceConfig(name="alpaca", params=...)])
+        -> registry.build_sources("account", [SourceConfig(source="alpaca", params=...)])
         -> AlpacaAccountAdapter(**params)   # api_key/api_secret arrive as kwargs
 
 Depends only on contracts + plugins (for SourceConfig). Pydantic-settings does
@@ -40,9 +40,13 @@ class SecretProvider(Protocol):
         """Single secret by canonical key, e.g. 'ALPACA_API_KEY'."""
         ...
 
-    def for_source(self, domain: str, name: str) -> dict[str, Any]:
+    def for_source(
+        self, domain: str, source: str, name: Optional[str] = None
+    ) -> dict[str, Any]:
         """All secrets belonging to one source, stripped of their prefix.
-        e.g. ('account','alpaca') -> {'api_key': ..., 'api_secret': ...}
+
+        Only ``<SOURCE>_*`` is supported. ``name`` is accepted to keep the
+        interface aligned with registry keys, but it does not affect env lookup.
         """
         ...
 
@@ -50,8 +54,7 @@ class SecretProvider(Protocol):
 class EnvSecretProvider:
     """Reads process env and optionally parses a local .env file.
     Convention:
-      - Domain & source specific: <DOMAIN_UPPER>_<SOURCE_UPPER>_<PARAM_UPPER>
-      - Source simple: <SOURCE_UPPER>_<PARAM_UPPER>
+      - Source-level: <SOURCE_UPPER>_<PARAM_UPPER>
     """
 
     def __init__(self, *, env_file: str = ".env") -> None:
@@ -79,53 +82,72 @@ class EnvSecretProvider:
     def get(self, key: str) -> Optional[str]:
         return self.secrets.get(key) or os.getenv(key)
 
-    def for_source(self, domain: str, name: str) -> dict[str, Any]:
-        """Finds env/dotenv variables with matching prefixes, strips prefix, lowercases keys."""
-        prefix_specific = f"{domain.upper()}_{name.upper()}_"
-        prefix_simple = f"{name.upper()}_"
+    def for_source(
+        self, domain: str, source: str, name: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Find source-level credentials, returning ctor kwargs.
 
-        merged_secrets = {}
-        # Merge system env and .env file values
+        Only ``<SOURCE>_*`` is supported. ``domain`` and ``name`` are accepted
+        to keep the interface aligned with registry keys, but neither affects
+        env lookup.
+        """
+        merged: dict[str, str] = {}
         all_vars = {**os.environ, **self.secrets}
+        prefix = f"{source.upper()}_"
 
-        # 1. Check simple prefix first
         for k, v in all_vars.items():
-            if k.upper().startswith(prefix_simple):
-                param_name = k[len(prefix_simple) :].lower()
-                merged_secrets[param_name] = v
+            if k.upper().startswith(prefix):
+                # Strip only the source prefix. For source="alpaca":
+                #   ALPACA_API_KEY -> api_key
+                #   ALPACA_SECRET_KEY -> secret_key
+                #   ALPACA_STOCK_API_KEY -> stock_api_key
+                # STOCK is not treated as a registry name here; named env
+                # prefixes no longer map to canonical kwargs like api_key.
+                param_name = k[len(prefix) :].lower()
+                merged[param_name] = v
 
-        # 2. Check specific prefix second (overwrites simple if duplicate exists)
-        for k, v in all_vars.items():
-            if k.upper().startswith(prefix_specific):
-                param_name = k[len(prefix_specific) :].lower()
-                merged_secrets[param_name] = v
-
-        return merged_secrets
+        return merged
 
 
 # ---------------------------------------------------------------------------
 # Non-secret config (from config/*.yaml) — matching project live/backtest yaml structure.
 # ---------------------------------------------------------------------------
-class SourceSettings(BaseModel):
-    """One source's non-secret settings. Arbitrary yaml fields are nested into params."""
 
-    name: str
+
+class SourceSettings(BaseModel):
+    """One source's non-secret settings.
+
+    ``source`` and optional ``name`` mirror the registry's
+    ``register(domain, source, name)`` key. Arbitrary yaml fields are swept into
+    ``params`` and passed to the adapter constructor by the composition layer.
+    """
+
+    source: str
+    name: Optional[str] = None
     enabled: bool = True
     params: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod
     def populate_params(cls, data: Any) -> Any:
-        """Dynamically moves extra yaml parameters under the params dict so it is clean."""
+        """Move arbitrary yaml keys under ``params``.
+
+        ``params:`` remains supported as an explicit nested override. It wins on
+        key collision to preserve the previous merge behavior.
+        """
         if isinstance(data, dict):
-            name = data.get("name")
-            enabled = data.get("enabled", True)
-            params = {
-                k: v for k, v in data.items() if k not in ("name", "enabled", "params")
+            data = dict(data)
+            source = data.pop("source")
+            name = data.pop("name", None)
+            enabled = data.pop("enabled", True)
+            explicit_params = dict(data.pop("params", {}))
+            params = {**data, **explicit_params}
+            return {
+                "source": source,
+                "name": name,
+                "enabled": enabled,
+                "params": params,
             }
-            if "params" in data:
-                params.update(data["params"])
-            return {"name": name, "enabled": enabled, "params": params}
         return data
 
 
@@ -215,52 +237,76 @@ class AppConfig:
         secrets = EnvSecretProvider(env_file=env_file)
         return cls(settings, secrets)
 
-    def source_params(self, domain: str, name: str) -> dict[str, Any]:
+    def source_params(
+        self, domain: str, source: str, name: Optional[str] = None
+    ) -> dict[str, Any]:
         """Merges yaml non-secret parameters with the secret parameters.
-        Secrets override YAML parameters if names collide.
+
+        ``source`` is the vendor (e.g. ``"alpaca"``); ``name`` is the optional
+        registry sub-name (e.g. ``"stock"``). Secrets override yaml parameters
+        if names collide.
         """
-        yaml_params = {}
+        yaml_params: dict[str, Any] = {}
         found = False
+        target_name = (name or "").lower()
 
         if domain in ("market", "news", "account"):
             sources = getattr(self.settings.adapters, domain, [])
             for src in sources:
-                if src.name.lower() == name.lower():
+                if (
+                    src.source.lower() == source.lower()
+                    and (src.name or "").lower() == target_name
+                ):
                     yaml_params = dict(src.params)
                     found = True
                     break
         elif domain == "feature":
-            for cat, sources in self.settings.features.items():
+            for sources in self.settings.features.values():
                 for src in sources:
-                    if src.name.lower() == name.lower():
+                    if (
+                        src.source.lower() == source.lower()
+                        and (src.name or "").lower() == target_name
+                    ):
                         yaml_params = dict(src.params)
                         found = True
                         break
                 if found:
                     break
 
-        secret_params = self.secrets.for_source(domain, name)
+        secret_params = self.secrets.for_source(domain, source, name)
         return {**yaml_params, **secret_params}
 
     def enabled_sources(self, domain: str) -> list[SourceConfig]:
-        """Builds a flat SourceConfig list for all enabled adapters in a domain."""
+        """Builds SourceConfig objects for all enabled adapters in a domain."""
         if not hasattr(self.settings.adapters, domain):
             return []
 
-        enabled = []
+        enabled: list[SourceConfig] = []
         sources = getattr(self.settings.adapters, domain)
         for src in sources:
             if src.enabled:
-                merged_params = self.source_params(domain, src.name)
-                enabled.append(SourceConfig(name=src.name, params=merged_params))
+                merged_params = self.source_params(domain, src.source, src.name)
+                enabled.append(
+                    SourceConfig(
+                        source=src.source,
+                        name=src.name,
+                        params=merged_params,
+                    )
+                )
         return enabled
 
     def enabled_features(self) -> list[SourceConfig]:
-        """Builds a flat SourceConfig list for all enabled features across categories."""
-        enabled = []
-        for category, sources in self.settings.features.items():
+        """Builds SourceConfig objects for all enabled features across categories."""
+        enabled: list[SourceConfig] = []
+        for sources in self.settings.features.values():
             for src in sources:
                 if src.enabled:
-                    merged_params = self.source_params("feature", src.name)
-                    enabled.append(SourceConfig(name=src.name, params=merged_params))
+                    merged_params = self.source_params("feature", src.source, src.name)
+                    enabled.append(
+                        SourceConfig(
+                            source=src.source,
+                            name=src.name,
+                            params=merged_params,
+                        )
+                    )
         return enabled

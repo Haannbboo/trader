@@ -31,43 +31,20 @@ from persistence.models import BarRow, FillRow, NewsRow
 _PERSISTED = (EventType.BAR, EventType.NEWS, EventType.FILL)
 
 
-class PersistenceWriter:
-    def __init__(self, bus: Bus, db: Database, *, batch_size: int = 100) -> None:
-        """batch_size: consider buffering inserts and flushing in batches — a
-        per-event INSERT per bar is too slow at market data rates. Left as a
-        knob; v1 may flush every event for simplicity."""
-        self._bus = bus
+class DbWriter:
+    """Pure database write operations, decoupled from event bus subscription logic."""
+
+    def __init__(self, db: Database) -> None:
         self._db = db
-        self._batch_size = batch_size
 
-    async def run(self) -> None:
-        """Subscribe to the persisted EventTypes and write each to its table.
-        Runs forever (until cancelled on shutdown)."""
-        sub = Subscription(event_types=_PERSISTED)
-        async for ev in self._bus.subscribe(sub, group="persistence"):
-            try:
-                await self._handle(ev)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.exception("Failed to write event {} to DB", ev)
+    async def store_bars(self, bars: list[Bar], source: str) -> None:
+        """Upsert a list of Bar DTOs to the database."""
+        async with self._db.session() as session:
+            for bar in bars:
+                row = self.bar_row(bar, source)
+                await self.upsert(session, row)
 
-    async def _handle(self, ev: Event) -> None:
-        """Route one event to the right row mapper + dialect-aware upsert.
-
-        Idempotent: a re-published event is a no-op, not a duplicate. The PK
-        lists come from each row's `__table__.primary_key.columns` so the
-        upsert stays correct if the schema changes.
-        """
-        async with self._db.session() as s:
-            if ev.type is EventType.BAR:
-                await self._upsert(s, self._bar_row(ev))
-            elif ev.type is EventType.NEWS:
-                await self._upsert(s, self._news_row(ev))
-            elif ev.type is EventType.FILL:
-                await self._upsert(s, self._fill_row(ev))
-
-    async def _upsert(self, session, row) -> None:
+    async def upsert(self, session, row) -> None:
         """INSERT the row, ignoring conflicts on the natural PK.
 
         Dialect switch via Database.dialect_name:
@@ -111,8 +88,7 @@ class PersistenceWriter:
             multiplier=inst.multiplier,
         )
 
-    def _bar_row(self, ev: Event) -> BarRow:
-        bar: Bar = ev.payload
+    def bar_row(self, bar: Bar, source: str) -> BarRow:
         return BarRow(
             timeframe=bar.timeframe.value,
             ts_open=bar.ts_open,
@@ -121,12 +97,11 @@ class PersistenceWriter:
             low=bar.low,
             close=bar.close,
             volume=bar.volume,
-            source=ev.source,
+            source=source,
             **self._instrument_cols(bar.instrument),
         )
 
-    def _news_row(self, ev: Event) -> NewsRow:
-        n: NewsItem = ev.payload
+    def news_row(self, n: NewsItem) -> NewsRow:
         return NewsRow(
             id=n.id,
             source=n.source,
@@ -136,8 +111,7 @@ class PersistenceWriter:
             url=n.url,
         )
 
-    def _fill_row(self, ev: Event) -> FillRow:
-        f: Fill = ev.payload
+    def fill_row(self, f: Fill, source: str) -> FillRow:
         return FillRow(
             fill_id=f.fill_id,
             broker_order_id=f.broker_order_id,
@@ -146,6 +120,59 @@ class PersistenceWriter:
             quantity=f.quantity,
             price=f.price,
             fee=f.fee,
-            source=ev.source,
+            source=source,
             **self._instrument_cols(f.instrument),
         )
+
+
+class PersistenceWriter:
+    """Bus consumer that durably stores BAR / NEWS / FILL events."""
+
+    def __init__(self, bus: Bus, db: Database, *, batch_size: int = 100) -> None:
+        """batch_size: consider buffering inserts and flushing in batches — a
+        per-event INSERT per bar is too slow at market data rates. Left as a
+        knob; v1 may flush every event for simplicity."""
+        self._bus = bus
+        self._db = db
+        self._batch_size = batch_size
+        self._writer = DbWriter(db)
+
+    @property
+    def writer(self) -> DbWriter:
+        """Expose the underlying DbWriter."""
+        return self._writer
+
+    async def run(self) -> None:
+        """Subscribe to the persisted EventTypes and write each to its table.
+        Runs forever (until cancelled on shutdown)."""
+        sub = Subscription(event_types=_PERSISTED)
+        async for ev in self._bus.subscribe(sub, group="persistence"):
+            try:
+                await self._handle(ev)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Failed to write event {} to DB", ev)
+
+    async def store_bars(self, bars: list[Bar], source: str) -> None:
+        """Upsert a list of Bar DTOs to the database."""
+        await self._writer.store_bars(bars, source)
+
+    async def _handle(self, ev: Event) -> None:
+        """Route one event to the right row mapper + dialect-aware upsert.
+
+        Idempotent: a re-published event is a no-op, not a duplicate. The PK
+        lists come from each row's `__table__.primary_key.columns` so the
+        upsert stays correct if the schema changes.
+        """
+        async with self._db.session() as s:
+            if ev.type is EventType.BAR:
+                await self._writer.upsert(
+                    s, self._writer.bar_row(ev.payload, ev.source)
+                )
+            elif ev.type is EventType.NEWS:
+                await self._writer.upsert(s, self._writer.news_row(ev.payload))
+            elif ev.type is EventType.FILL:
+                await self._writer.upsert(
+                    s, self._writer.fill_row(ev.payload, ev.source)
+                )

@@ -4,6 +4,10 @@ from contracts.errors import (
     OrderRejectedError,
     TraderError,
 )
+from contracts.instruments import (
+    instrument_to_occ,
+    occ_to_instrument,
+)
 from contracts.ports import (
     AccountService,
     AccountSourcePort,
@@ -98,4 +102,6 @@ __all__ = [
     "ConnectionError",
     "OrderRejectedError",
     "InsufficientFundsError",
+    "occ_to_instrument",
+    "instrument_to_occ",
 ]
