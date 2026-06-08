@@ -7,6 +7,7 @@ file-backed SQLite database.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List
@@ -62,6 +63,11 @@ async def _write_bars(db: Database, bars: List[Bar], source: str = "test") -> No
 
     w = DbWriter(db)
     await w.store_bars(bars, source=source)
+
+
+async def _drain(queue, sink: List[Event]) -> None:
+    async for ev in queue:
+        sink.append(ev)
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +257,7 @@ async def test_replay_yields_synthetic_event_envelope(tmp_db: Database) -> None:
 
     # event_id is a fresh UUID (not the bar's, not from the DB)
     from uuid import UUID
+
     assert isinstance(ev.event_id, UUID)
 
 
@@ -277,3 +284,52 @@ async def test_replay_event_ids_are_unique_across_yields(tmp_db: Database) -> No
 
     assert len(events) == 3
     assert len({ev.event_id for ev in events}) == 3  # all distinct
+
+
+# ---------------------------------------------------------------------------
+# Iterator-only: replay() does not push to other subscribers' queues.
+# ---------------------------------------------------------------------------
+async def test_replay_does_not_push_to_existing_subscribers(
+    tmp_db: Database,
+) -> None:
+    bus = InProcessBus()
+    history = Repository(tmp_db)
+
+    # A second subscriber is already attached to the bus; collect what it sees.
+    sub_other = Subscription(
+        event_types=(EventType.BAR,),
+        instruments=(_instrument("AAPL"),),
+    )
+    other_received: List[Event] = []
+    other_queue = bus.subscribe(sub_other)
+    consumer_task = asyncio.create_task(_drain(other_queue, other_received))
+
+    try:
+        bars = [
+            _bar("AAPL", _utc(2026, 1, 1), timeframe=Timeframe.D1),
+            _bar("AAPL", _utc(2026, 1, 2), timeframe=Timeframe.D1),
+        ]
+        await _write_bars(tmp_db, bars, source="test")
+
+        sub = Subscription(
+            event_types=(EventType.BAR,),
+            instruments=(_instrument("AAPL"),),
+        )
+        replayed: List[Event] = []
+        async for ev in bus.replay(
+            sub, _utc(2026, 1, 1), _utc(2026, 1, 3), history=history
+        ):
+            replayed.append(ev)
+
+        # The replay iterator yielded the bars...
+        assert len(replayed) == 2
+        # ...but the other subscriber's queue is empty.
+        # Give the consumer a moment to see whether anything arrives.
+        await asyncio.sleep(0.05)
+        assert other_received == []
+    finally:
+        consumer_task.cancel()
+        try:
+            await consumer_task
+        except (asyncio.CancelledError, Exception):
+            pass
