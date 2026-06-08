@@ -140,6 +140,40 @@ class FakeOptionDataStream(FakeStockDataStream):
 
 
 # ---------------------------------------------------------------------------
+# Fakes: crypto surfaces for the AlpacaCryptoMarketAdapter tests.
+# ---------------------------------------------------------------------------
+class FakeCryptoHistoricalClient:
+    """Narrow stand-in for alpaca.data.historical.crypto.CryptoHistoricalDataClient.
+
+    Mirrors the pattern of FakeStockHistoricalClient: payload attributes are
+    instance-level (not copied) so tests can mutate ``bars_payload`` after
+    construction. The zero-value test depends on this mutability.
+    """
+
+    def __init__(self) -> None:
+        self.bars_payload = load_fixture("crypto_bars.json")
+        self.quote_payload = load_fixture("crypto_quote.json")
+        self.last_request: Any = None
+
+    def get_crypto_bars(self, request: Any) -> Any:
+        self.last_request = request
+        return {"BTC/USD": self.bars_payload["bars"]}
+
+    def get_crypto_latest_quote(self, request: Any) -> Any:
+        self.last_request = request
+        return {"BTC/USD": self.quote_payload}
+
+
+class FakeCryptoDataStream:
+    """Opaque marker — ``_connect`` only stores the injected stream.
+
+    No methods are needed: the pull path never calls subscribe_*/run/stop on
+    the data stream. Tests that exercise ``_build_data_stream`` directly use
+    monkeypatch instead of this fake.
+    """
+
+
+# ---------------------------------------------------------------------------
 # Stock adapter
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
