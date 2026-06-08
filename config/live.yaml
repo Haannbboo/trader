@@ -31,6 +31,9 @@ adapters:
     - source: alpaca
       name: option
       instruments: []
+    # - source: alpaca
+    #   name: crypto
+    #   instruments: ["BTC/USD", "ETH/USD"]
 
 # Active features to compute
 features:

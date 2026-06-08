@@ -825,4 +825,5 @@ class AlpacaCryptoMarketAdapter(_AlpacaMarketAdapterBase):
 __all__ = [
     "AlpacaOptionMarketAdapter",
     "AlpacaStockMarketAdapter",
+    "AlpacaCryptoMarketAdapter",
 ]
