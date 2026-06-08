@@ -81,6 +81,16 @@ class OrderStatus(str, Enum):
     EXPIRED = "expired"
 
 
+class OrderFilter(str, Enum):
+    """Query filter for `get_orders`. Broker-agnostic vocabulary that maps to
+    Alpaca's `QueryOrderStatus`. The default of OPEN matches the project's
+    convention: 'show me what's still working' is the most common read."""
+
+    OPEN = "open"
+    CLOSED = "closed"
+    ALL = "all"
+
+
 class Timeframe(str, Enum):
     S1 = "1s"
     M1 = "1m"

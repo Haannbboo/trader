@@ -17,6 +17,7 @@ from contracts.schema import (
     Instrument,
     NewsItem,
     Order,
+    OrderFilter,
     Position,
     Quote,
     Timeframe,
@@ -110,7 +111,12 @@ class NewsSourcePort(SourcePort, Protocol):
 class AccountSourcePort(SourcePort, Protocol):
     async def get_positions(self) -> list[Position]: ...
     async def get_balance(self) -> Balance: ...
-    async def get_orders(self) -> list[Order]: ...
+    async def get_orders(
+        self,
+        *,
+        status: OrderFilter = OrderFilter.OPEN,
+        symbols: Optional[list[str]] = None,
+    ) -> list[Order]: ...
     async def place_order(self, order: Order) -> Order: ...
     async def cancel_order(self, broker_order_id: str) -> None: ...
     def subscribe(self) -> AsyncIterator[Event]: ...  # fills + order/position updates
@@ -212,7 +218,12 @@ class NewsService(Protocol):
 class AccountService(Protocol):
     async def get_positions(self) -> list[Position]: ...
     async def get_balance(self) -> Balance: ...
-    async def get_orders(self) -> list[Order]: ...
+    async def get_orders(
+        self,
+        *,
+        status: OrderFilter = OrderFilter.OPEN,
+        symbols: Optional[list[str]] = None,
+    ) -> list[Order]: ...
     async def place_order(
         self, order: Order
     ) -> Order: ...  # MUST route through the guardrail

@@ -14,6 +14,7 @@ from contracts import (
     EventType,
     Instrument,
     Order,
+    OrderFilter,
     OrderStatus,
     OrderType,
     Position,
@@ -48,6 +49,8 @@ class MockAccountSource:
         self.placed_order = None
         self.cancelled_broker_order_id = None
         self.events_to_yield: list[Event] = []
+        self.last_orders_status: OrderFilter | None = None
+        self.last_orders_symbols: list[str] | None = None
 
     async def start(self) -> None:
         self.started = True
@@ -61,7 +64,14 @@ class MockAccountSource:
     async def get_balance(self) -> Balance:
         return self.balance
 
-    async def get_orders(self) -> list[Order]:
+    async def get_orders(
+        self,
+        *,
+        status: OrderFilter = OrderFilter.OPEN,
+        symbols: list[str] | None = None,
+    ) -> list[Order]:
+        self.last_orders_status = status
+        self.last_orders_symbols = list(symbols) if symbols else None
         return self.orders
 
     async def place_order(self, order: Order) -> Order:
@@ -132,9 +142,16 @@ async def test_account_service_reads_proxy() -> None:
     balance = await service.get_balance()
     assert balance == source.balance
 
-    # Orders
+    # Orders (default to OPEN, no symbol filter)
     orders = await service.get_orders()
     assert orders == source.orders
+    assert source.last_orders_status == OrderFilter.OPEN
+    assert source.last_orders_symbols is None
+
+    # Orders with explicit filter — service must pass it through verbatim.
+    await service.get_orders(status=OrderFilter.ALL, symbols=["AAPL"])
+    assert source.last_orders_status == OrderFilter.ALL
+    assert source.last_orders_symbols == ["AAPL"]
 
     # Cancel
     await service.cancel_order("broker-123")

@@ -38,6 +38,7 @@ from contracts import (
     Event,
     EventType,
     Order,
+    OrderFilter,
     Position,
     Subscription,
 )
@@ -95,9 +96,16 @@ class AccountService(AccountServiceInterface):
         """Fetch cash and buying power balances."""
         return await self._source.get_balance()
 
-    async def get_orders(self) -> list[Order]:
-        """Fetch order history or current pending orders."""
-        return await self._source.get_orders()
+    async def get_orders(
+        self,
+        *,
+        status: OrderFilter = OrderFilter.OPEN,
+        symbols: list[str] | None = None,
+    ) -> list[Order]:
+        """Fetch orders filtered by status and/or symbols. Default to OPEN
+        orders — that's the common read ('what's still working'). Filtering
+        happens at the broker, not in this service."""
+        return await self._source.get_orders(status=status, symbols=symbols)
 
     # --- the one path that can lose money: guardrail is mandatory ---
     async def place_order(self, order: Order) -> Order:

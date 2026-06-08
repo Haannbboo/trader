@@ -14,10 +14,14 @@ from contracts import (
     NewsFilter,
     NewsItem,
     Order,
+    OrderFilter,
     OrderStatus,
+    OrderType,
     Position,
     Quote,
+    Side,
     Timeframe,
+    TimeInForce,
 )
 from tools import ToolLayer
 
@@ -26,6 +30,8 @@ class MockAccountService:
     def __init__(self) -> None:
         self.placed_order = None
         self.cancelled_broker_order_id = None
+        self.get_orders_status: OrderFilter | None = None
+        self.get_orders_symbols: list[str] | None = None
 
     async def get_balance(self) -> Balance:
         return Balance(
@@ -42,6 +48,30 @@ class MockAccountService:
                 quantity=Decimal("10"),
                 avg_price=Decimal("150"),
                 ts_event=datetime(2026, 6, 2, 1, 0, 0, tzinfo=timezone.utc),
+            )
+        ]
+
+    async def get_orders(
+        self,
+        *,
+        status: OrderFilter = OrderFilter.OPEN,
+        symbols: list[str] | None = None,
+    ) -> list[Order]:
+        self.get_orders_status = status
+        self.get_orders_symbols = list(symbols) if symbols else None
+        return [
+            Order(
+                client_order_id="client-1",
+                instrument=Instrument(
+                    symbol=symbols[0] if symbols else "AAPL",
+                    asset_class=AssetClass.EQUITY,
+                ),
+                side=Side.BUY,
+                quantity=Decimal("5"),
+                order_type=OrderType.MARKET,
+                tif=TimeInForce.DAY,
+                broker_order_id="broker-789",
+                status=OrderStatus.NEW,
             )
         ]
 
@@ -139,6 +169,7 @@ def test_tool_specs_advertising() -> None:
     names1 = [t["name"] for t in specs1]
     assert "get_balance" in names1
     assert "get_positions" in names1
+    assert "get_orders" in names1
     assert "place_order" in names1
     assert "cancel_order" in names1
     assert "get_stock_quote" not in names1
@@ -173,6 +204,16 @@ def test_tool_specs_advertising() -> None:
     assert rsi_spec["parameters"]["required"] == ["symbol"]
     macd_spec = next(t for t in specs2 if t["name"] == "get_macd")
     assert macd_spec["parameters"]["required"] == ["symbol"]
+
+    orders_spec = next(t for t in specs1 if t["name"] == "get_orders")
+    assert orders_spec["parameters"]["properties"]["status"]["default"] == "open"
+    assert orders_spec["parameters"]["properties"]["status"]["enum"] == [
+        "open",
+        "closed",
+        "all",
+    ]
+    assert "symbol" in orders_spec["parameters"]["properties"]
+    assert orders_spec["parameters"]["required"] == []
 
 
 @pytest.mark.asyncio
@@ -210,6 +251,21 @@ async def test_dispatch_account_tools() -> None:
     cancel_res = await layer.dispatch("cancel_order", {"broker_order_id": "broker-456"})
     assert cancel_res["status"] == "success"
     assert account.cancelled_broker_order_id == "broker-456"
+
+    # get_orders: default to OPEN, no symbol filter
+    open_res = await layer.dispatch("get_orders", {})
+    assert len(open_res["orders"]) == 1
+    assert open_res["orders"][0]["broker_order_id"] == "broker-789"
+    assert account.get_orders_status == OrderFilter.OPEN
+    assert account.get_orders_symbols is None
+
+    # get_orders: status=all + symbol filter
+    filtered_res = await layer.dispatch(
+        "get_orders", {"status": "all", "symbol": "TSLA"}
+    )
+    assert filtered_res["orders"][0]["instrument"]["symbol"] == "TSLA"
+    assert account.get_orders_status == OrderFilter.ALL
+    assert account.get_orders_symbols == ["TSLA"]
 
 
 @pytest.mark.asyncio
