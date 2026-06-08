@@ -21,17 +21,10 @@ import { getModel, getModels } from "@earendil-works/pi-ai";
 import { config as dotenvConfig } from "dotenv";
 import { ConfigError, type ResolvedConfig, resolveConfig } from "./config.js";
 import { createTools } from "./forwarder/index.js";
+import { findRepoRoot } from "./repo.js";
 
 // --- 1. .env loading from the repo root ------------------------------------
 const __dirname = dirname(fileURLToPath(import.meta.url));
-function findRepoRoot(start: string): string {
-  let dir = start;
-  while (dir !== "/") {
-    if (existsSync(resolve(dir, "pyproject.toml"))) return dir;
-    dir = resolve(dir, "..");
-  }
-  return start;
-}
 const envPath = resolve(findRepoRoot(__dirname), ".env");
 if (existsSync(envPath)) {
   // `override: false` (the default) means explicit shell env beats .env.
