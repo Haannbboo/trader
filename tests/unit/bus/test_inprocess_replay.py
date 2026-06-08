@@ -335,3 +335,17 @@ async def test_replay_does_not_push_to_existing_subscribers(
         except (asyncio.CancelledError, Exception):
             pass
         await bus.stop()
+
+
+# ---------------------------------------------------------------------------
+# Anti-regression: InProcessBus() ctor must NOT accept a `history` kwarg.
+# The bus is persistence-agnostic; history is supplied per-call to replay().
+# ---------------------------------------------------------------------------
+def test_inprocess_bus_ctor_rejects_history_kwarg() -> None:
+    bus = InProcessBus()
+    with pytest.raises(TypeError):
+        InProcessBus(history=object())  # type: ignore[call-arg]
+
+    # The bus attribute also must NOT exist (defense in depth).
+    assert not hasattr(bus, "_history")
+    assert not hasattr(bus, "history")
