@@ -27,8 +27,10 @@ adapters:
     - source: alpaca
       name: stock
       feed: iex
+      instruments: ["SPY", "QQQ"]
     - source: alpaca
       name: option
+      instruments: []
 
 # Active features to compute
 # features:
