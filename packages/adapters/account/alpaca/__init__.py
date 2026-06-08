@@ -34,6 +34,7 @@ from contracts import (
     Fill,
     Instrument,
     Order,
+    OrderFilter,
     OrderStatus,
     OrderType,
     Position,
@@ -184,11 +185,22 @@ class AlpacaAccountAdapter(BaseAccountAdapter):
         account = await asyncio.to_thread(self._require_trading_client().get_account)
         return self._as_dict(account)
 
-    async def _fetch_orders_raw(self) -> list[dict]:
-        from alpaca.trading.enums import QueryOrderStatus
+    async def _fetch_orders_raw(
+        self,
+        *,
+        status: OrderFilter = OrderFilter.OPEN,
+        symbols: list[str] | None = None,
+    ) -> list[dict]:
+        """Build alpaca-py's `GetOrdersRequest` from the project-wide filter.
+        The broker-native call does the filtering server-side, so we never
+        pull closed orders we don't need."""
         from alpaca.trading.requests import GetOrdersRequest
 
-        request = GetOrdersRequest(status=QueryOrderStatus.ALL)
+        request_kwargs: dict[str, Any] = {"status": self._map_order_filter(status)}
+        if symbols:
+            request_kwargs["symbols"] = list(symbols)
+
+        request = GetOrdersRequest(**request_kwargs)
         orders = await asyncio.to_thread(
             self._require_trading_client().get_orders,
             filter=request,
@@ -513,6 +525,19 @@ class AlpacaAccountAdapter(BaseAccountAdapter):
         from alpaca.trading.enums import OrderSide
 
         return OrderSide(side.value)
+
+    @staticmethod
+    def _map_order_filter(order_filter: OrderFilter) -> Any:
+        """Translate the project's OrderFilter into alpaca-py's QueryOrderStatus.
+        A direct 1:1 mapping; the project enum exists so the port stays
+        broker-agnostic."""
+        from alpaca.trading.enums import QueryOrderStatus
+
+        return {
+            OrderFilter.OPEN: QueryOrderStatus.OPEN,
+            OrderFilter.CLOSED: QueryOrderStatus.CLOSED,
+            OrderFilter.ALL: QueryOrderStatus.ALL,
+        }[order_filter]
 
     @staticmethod
     def _normalize_rest_base_url(base_url: str | None) -> str | None:

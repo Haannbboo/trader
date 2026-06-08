@@ -13,6 +13,7 @@ from contracts import (
     EventType,
     Instrument,
     Order,
+    OrderFilter,
     OrderStatus,
     OrderType,
     Side,
@@ -206,3 +207,52 @@ async def test_alpaca_account_streaming_read_path_normalizes_fixture_events() ->
     assert event.payload.fill_id == "fixture_execution_id"
     assert event.payload.broker_order_id == "fixture_id"
     assert event.payload.price == Decimal("305.59")
+
+
+@pytest.mark.asyncio
+async def test_alpaca_account_get_orders_defaults_to_open_filter() -> None:
+    from alpaca.trading.enums import QueryOrderStatus
+    from alpaca.trading.requests import GetOrdersRequest
+
+    client = FakeTradingClient()
+    adapter = AlpacaAccountAdapter(
+        api_key="key", api_secret="secret", trading_client=client
+    )
+
+    await adapter.get_orders()
+
+    assert isinstance(client.order_filter, GetOrdersRequest)
+    assert client.order_filter.status == QueryOrderStatus.OPEN
+    assert client.order_filter.symbols is None
+
+
+@pytest.mark.asyncio
+async def test_alpaca_account_get_orders_passes_status_and_symbols_to_broker() -> None:
+    from alpaca.trading.enums import QueryOrderStatus
+    from alpaca.trading.requests import GetOrdersRequest
+
+    client = FakeTradingClient()
+    adapter = AlpacaAccountAdapter(
+        api_key="key", api_secret="secret", trading_client=client
+    )
+
+    await adapter.get_orders(status=OrderFilter.ALL, symbols=["AAPL", "TSLA"])
+
+    assert isinstance(client.order_filter, GetOrdersRequest)
+    assert client.order_filter.status == QueryOrderStatus.ALL
+    assert list(client.order_filter.symbols) == ["AAPL", "TSLA"]
+
+
+@pytest.mark.asyncio
+async def test_alpaca_account_get_orders_closed_status_no_symbols() -> None:
+    from alpaca.trading.enums import QueryOrderStatus
+
+    client = FakeTradingClient()
+    adapter = AlpacaAccountAdapter(
+        api_key="key", api_secret="secret", trading_client=client
+    )
+
+    await adapter.get_orders(status=OrderFilter.CLOSED)
+
+    assert client.order_filter.status == QueryOrderStatus.CLOSED
+    assert client.order_filter.symbols is None

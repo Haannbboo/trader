@@ -31,6 +31,7 @@ from contracts import (
     NewsFilter,
     NewsService,
     Order,
+    OrderFilter,
     OrderType,
     Side,
     Timeframe,
@@ -79,6 +80,7 @@ class ToolLayer:
         native_names = {
             "get_balance",
             "get_positions",
+            "get_orders",
             "place_order",
             "cancel_order",
             "get_stock_quote",
@@ -203,6 +205,35 @@ class ToolLayer:
                         }
                     },
                     "required": ["broker_order_id"],
+                },
+            }
+        )
+        specs.append(
+            {
+                "name": "get_orders",
+                "description": (
+                    "Fetch orders for the account. Defaults to OPEN orders; "
+                    "filter by status and/or by a single symbol. Filtering "
+                    "happens at the broker, so closed-order history is not "
+                    "pulled unless explicitly requested."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "status": {
+                            "type": "string",
+                            "enum": ["open", "closed", "all"],
+                            "default": "open",
+                            "description": ("Order status filter. Defaults to 'open'."),
+                        },
+                        "symbol": {
+                            "type": "string",
+                            "description": (
+                                "Optional symbol to filter by (e.g. AAPL)."
+                            ),
+                        },
+                    },
+                    "required": [],
                 },
             }
         )
@@ -437,6 +468,12 @@ class ToolLayer:
         elif name == "cancel_order":
             await self._account.cancel_order(args["broker_order_id"])
             return {"status": "success"}
+        elif name == "get_orders":
+            status = OrderFilter(args.get("status", "open"))
+            symbol = args.get("symbol")
+            symbols = [symbol] if symbol else None
+            orders = await self._account.get_orders(status=status, symbols=symbols)
+            return {"orders": self._serialize(orders)}
         elif name == "get_stock_quote":
             if self._market is None:
                 raise ValueError("Market service is not available")

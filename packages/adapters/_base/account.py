@@ -12,7 +12,7 @@ guardrail at the SERVICE layer; this base only does broker-protocol commonality.
 
 from __future__ import annotations
 
-from typing import AsyncIterator
+from typing import AsyncIterator, Optional
 
 from adapters._base.base import BaseAdapter
 from contracts import (
@@ -21,6 +21,7 @@ from contracts import (
     Event,
     Fill,
     Order,
+    OrderFilter,
     OrderStatus,
     Position,
 )
@@ -46,10 +47,21 @@ class BaseAccountAdapter(BaseAdapter, AccountSourcePort):
         await self.limiter.acquire()
         return self._normalize_balance(await self._fetch_balance_raw())
 
-    async def get_orders(self) -> list[Order]:
-        """Common: limiter -> _fetch_orders_raw -> map _normalize_order."""
+    async def get_orders(
+        self,
+        *,
+        status: OrderFilter = OrderFilter.OPEN,
+        symbols: Optional[list[str]] = None,
+    ) -> list[Order]:
+        """Common: limiter -> _fetch_orders_raw -> map _normalize_order. The
+        filter is broker-specific; the base just passes it through so concrete
+        adapters can build their native request (e.g. alpaca-py's
+        GetOrdersRequest)."""
         await self.limiter.acquire()
-        return [self._normalize_order(raw) for raw in await self._fetch_orders_raw()]
+        return [
+            self._normalize_order(raw)
+            for raw in await self._fetch_orders_raw(status=status, symbols=symbols)
+        ]
 
     # --- writes: idempotency lives here, once, for all brokers ---
     async def place_order(self, order: Order) -> Order:
@@ -87,8 +99,15 @@ class BaseAccountAdapter(BaseAdapter, AccountSourcePort):
         """Fetch raw balance information from the broker's API."""
         raise NotImplementedError()
 
-    async def _fetch_orders_raw(self) -> list[dict]:
-        """Fetch raw orders from the broker's API."""
+    async def _fetch_orders_raw(
+        self,
+        *,
+        status: OrderFilter,
+        symbols: Optional[list[str]],
+    ) -> list[dict]:
+        """Fetch raw orders from the broker's API. Adapters translate the
+        project-wide OrderFilter into whatever the broker's native filter
+        vocabulary is (Alpaca: GetOrdersRequest; others: their own)."""
         raise NotImplementedError()
 
     async def _submit_raw(self, order: Order) -> dict:
