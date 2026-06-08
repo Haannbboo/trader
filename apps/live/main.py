@@ -41,7 +41,6 @@ from typing import Any
 
 from account import AccountService
 from bus import Bus, InProcessBus
-from contracts import AssetClass, Instrument
 from contracts.ports import AccountSourcePort, MarketSourcePort, NewsSourcePort
 from feature import FeatureService
 from feature.runtime import FeatureRuntime
@@ -138,15 +137,6 @@ def _build_bus(cfg: AppConfig) -> Bus:
         )
     logger.info("bus: InProcessBus")
     return InProcessBus()
-
-
-def _parse_instrument(symbol: str, asset_class: AssetClass) -> Instrument:
-    """Resolve a configured symbol string to a contracts.Instrument DTO."""
-    from contracts import occ_to_instrument
-
-    if asset_class == AssetClass.OPTION:
-        return occ_to_instrument(symbol)
-    return Instrument(symbol=symbol, asset_class=asset_class)
 
 
 async def _try_start(service: Any, label: str) -> bool:
@@ -255,7 +245,7 @@ async def run(config_path: str = "config/live.yaml") -> None:
     feature_runtime: FeatureRuntime | None = None
     feature_processors = registry.build_processors(cfg.enabled_features())
     if feature_processors:
-        feature_runtime = FeatureRuntime(bus=bus)
+        feature_runtime = FeatureRuntime(bus=bus, market=market_service)
         # add_processor is a NotImplementedError stub today; try once, log on fail.
         for p in feature_processors:
             try:
@@ -280,67 +270,11 @@ async def run(config_path: str = "config/live.yaml") -> None:
         else:
             market_service = None
 
-    # Start background pump tasks for all configured market instruments
-    market_pump_tasks: list[asyncio.Task] = []
+    market_task = None
     if market_service is not None:
-        from contracts import MarketChannel
-
-        # Loop over each market source configuration from YAML
-        for src_cfg in cfg.settings.adapters.market:
-            if not src_cfg.enabled:
-                continue
-
-            # Find the instantiated adapter matching this config
-            try:
-                cls = registry.get("market", src_cfg.source, src_cfg.name)
-                adapter = next((s for s in market_sources if isinstance(s, cls)), None)
-            except KeyError:
-                continue
-
-            if not adapter:
-                continue
-
-            # Resolve asset class
-            asset_classes = adapter.capabilities.asset_classes
-            if not asset_classes:
-                continue
-            primary_class = asset_classes[0]
-
-            # Parse configured instruments
-            symbols = src_cfg.params.get("instruments", [])
-            instruments = []
-            for sym in symbols:
-                try:
-                    inst = _parse_instrument(sym, primary_class)
-                    instruments.append(inst)
-                except Exception as e:
-                    logger.error(
-                        "Failed to parse instrument {} for source {}: {}",
-                        sym,
-                        src_cfg.source,
-                        e,
-                    )
-
-            if not instruments:
-                continue
-
-            # Start background pump subscription loop
-            async def run_pump(insts=instruments):
-                try:
-                    async for _ in market_service.subscribe(
-                        insts, [MarketChannel.BARS]
-                    ):
-                        pass
-                except asyncio.CancelledError:
-                    pass
-                except Exception as e:
-                    logger.exception("Market subscription pump failed: {}", e)
-
-            task = asyncio.create_task(
-                run_pump(),
-                name=f"live-market-pump-{src_cfg.source}-{src_cfg.name or ''}",
-            )
-            market_pump_tasks.append(task)
+        market_task = asyncio.create_task(market_service.run(), name="market-service")
+        # Yield to the event loop so the market task runs and registers its subscriptions immediately
+        await asyncio.sleep(0)
 
     if news_service is not None:
         if await _try_start(news_service, "NewsService"):
@@ -349,11 +283,47 @@ async def run(config_path: str = "config/live.yaml") -> None:
             news_service = None
 
     if feature_runtime is not None:
-        if await _try_start(feature_runtime, "FeatureRuntime"):
+        # Resolve active configured instruments for warmup
+        warmup_instruments = []
+        for src_cfg in cfg.settings.adapters.market:
+            if not src_cfg.enabled:
+                continue
+            try:
+                cls = registry.get("market", src_cfg.source, src_cfg.name)
+                adapter = next((s for s in market_sources if isinstance(s, cls)), None)
+                if not adapter or not adapter.capabilities.asset_classes:
+                    continue
+                primary_class = adapter.capabilities.asset_classes[0]
+                from contracts import AssetClass, Instrument, occ_to_instrument
+
+                for sym in src_cfg.params.get("instruments", []):
+                    if primary_class == AssetClass.OPTION:
+                        warmup_instruments.append(occ_to_instrument(sym))
+                    else:
+                        warmup_instruments.append(
+                            Instrument(symbol=sym, asset_class=primary_class)
+                        )
+            except Exception as e:
+                logger.error(
+                    "Failed to parse instrument config for FeatureRuntime warmup: {}", e
+                )
+
+        try:
+            from contracts import Timeframe
+
+            await feature_runtime.start(
+                instruments=warmup_instruments,
+                timeframes=[Timeframe.M1],
+            )
+            logger.info("started FeatureRuntime")
             started_services.append(feature_runtime)
-        else:
+        except NotImplementedError:
+            logger.warning("FeatureRuntime.start is not implemented")
             feature_runtime = None
             feature_service = None
+        except Exception as e:
+            logger.exception("Failed to start FeatureRuntime: {}", e)
+            raise
 
     # 5. tool layer — None for any service that didn't make it past start()
     tools = ToolLayer(
@@ -412,6 +382,8 @@ async def run(config_path: str = "config/live.yaml") -> None:
     live_tasks: set[asyncio.Task[Any]] = {serve_task, stop_task}
     if persistence_task is not None:
         live_tasks.add(persistence_task)
+    if market_task is not None:
+        live_tasks.add(market_task)
 
     # First of the live_tasks to finish ends the live loop:
     #   serve_task finishing means uvicorn crashed or exited cleanly;
@@ -426,15 +398,6 @@ async def run(config_path: str = "config/live.yaml") -> None:
 
     # 8. graceful shutdown
     logger.info("shutting down...")
-
-    # Cancel market pump tasks first so they release websocket streams gracefully
-    for t in market_pump_tasks:
-        t.cancel()
-    for t in market_pump_tasks:
-        try:
-            await t
-        except (asyncio.CancelledError, Exception):
-            pass
 
     for t in pending:
         t.cancel()
@@ -463,6 +426,11 @@ async def run(config_path: str = "config/live.yaml") -> None:
         exc = persistence_task.exception()
         if exc is not None:
             logger.exception("persistence writer crashed: {}", exc)
+            raise exc
+    if market_task is not None and market_task in done:
+        exc = market_task.exception()
+        if exc is not None:
+            logger.exception("market service crashed: {}", exc)
             raise exc
 
     # Stop services in reverse start order: agent-facing first, account last so

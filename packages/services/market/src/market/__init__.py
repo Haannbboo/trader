@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import AsyncIterator, Optional
 
 from contracts import (
+    AssetClass,
     Bar,
     Bus,
     Event,
@@ -17,6 +18,7 @@ from contracts import (
     Quote,
     Subscription,
     Timeframe,
+    occ_to_instrument,
 )
 from loguru import logger
 from persistence import DbWriter
@@ -58,7 +60,10 @@ class MarketService(MarketDataService):
         self._repository = repository
         self._writer = writer
         self._ref_counts: dict[tuple[Instrument, MarketChannel], int] = {}
-        self._pump_tasks: dict[tuple[Instrument, MarketChannel], asyncio.Task] = {}
+        self._pump_tasks: dict[
+            MarketSourcePort,
+            tuple[asyncio.Task, list[Instrument], list[MarketChannel]],
+        ] = {}
         self._lock = asyncio.Lock()
 
     async def start(self) -> None:
@@ -66,13 +71,87 @@ class MarketService(MarketDataService):
         for source in self.sources:
             await source.start()
 
+    async def run(self) -> None:
+        """Subscribe to configured instruments on startup and keep the subscription loops alive.
+
+        Runs forever (until cancelled on shutdown).
+        """
+        tasks = []
+        for source in self.sources:
+            params = getattr(source, "params", {})
+            symbols = params.get("instruments", [])
+            if not symbols:
+                continue
+
+            asset_classes = source.capabilities.asset_classes
+            if not asset_classes:
+                continue
+            primary_class = asset_classes[0]
+
+            instruments = []
+            for sym in symbols:
+                try:
+                    if primary_class == AssetClass.OPTION:
+                        inst = occ_to_instrument(sym)
+                    else:
+                        inst = Instrument(symbol=sym, asset_class=primary_class)
+                    instruments.append(inst)
+                except Exception as e:
+                    logger.error(
+                        "Failed to parse instrument {} for source {}: {}",
+                        sym,
+                        source.name,
+                        e,
+                    )
+
+            if not instruments:
+                continue
+
+            # Define the background pump loop for this source's instruments
+            async def run_pump(insts=instruments, src_name=source.name):
+                try:
+                    async for _ in self.subscribe(insts, [MarketChannel.BARS]):
+                        pass
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.exception(
+                        "Market subscription pump failed for {}: {}", src_name, e
+                    )
+
+            task = asyncio.create_task(
+                run_pump(),
+                name=f"market-pump-{source.name}",
+            )
+            tasks.append(task)
+
+        if not tasks:
+            # Sleep forever (until cancelled) to align with long-running service task pattern
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                pass
+            return
+
+        # Keep running until cancelled
+        try:
+            await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            for t in tasks:
+                t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+
     async def stop(self) -> None:
         """Stop the market data service and disconnect all sources."""
         async with self._lock:
-            for task in self._pump_tasks.values():
+            for task, _, _ in self._pump_tasks.values():
                 task.cancel()
             if self._pump_tasks:
-                await asyncio.gather(*self._pump_tasks.values(), return_exceptions=True)
+                await asyncio.gather(
+                    *(task for task, _, _ in self._pump_tasks.values()),
+                    return_exceptions=True,
+                )
             self._pump_tasks.clear()
             self._ref_counts.clear()
 
@@ -146,20 +225,14 @@ class MarketService(MarketDataService):
         channels: list[MarketChannel],
     ) -> AsyncIterator[Event]:
         """Subscribe to real-time streams (quotes, trades, bars) for instruments."""
-        # 1. Register active interest and start background pump tasks.
-        # Under self._lock, we increment reference counts for each (instrument, channel).
-        # If a count goes from 0 -> 1, it means this is the first subscriber for this stream,
-        # so we spin up a new background pump task to read from the adapter and publish to the bus.
         async with self._lock:
             for inst in instruments:
                 for chan in channels:
                     key = (inst, chan)
                     self._ref_counts[key] = self._ref_counts.get(key, 0) + 1
-                    if self._ref_counts[key] == 1:
-                        await self._start_pump(inst, chan)
+            await self._update_subscriptions()
 
         try:
-            # 2. Yield events from the Bus.
             # Map requested MarketChannel enums to their corresponding EventType enums.
             event_types = []
             for chan in channels:
@@ -179,10 +252,6 @@ class MarketService(MarketDataService):
             async for event in self.bus.subscribe(sub):
                 yield event
         finally:
-            # 3. Clean up active subscriptions when the caller exits or cancels.
-            # Under self._lock, we decrement reference counts. If the count drops to 0,
-            # no active strategies or subagents need this stream anymore, so we cancel
-            # and clean up the background pump task.
             async with self._lock:
                 for inst in instruments:
                     for chan in channels:
@@ -191,7 +260,7 @@ class MarketService(MarketDataService):
                             self._ref_counts[key] -= 1
                             if self._ref_counts[key] <= 0:
                                 del self._ref_counts[key]
-                                await self._stop_pump(inst, chan)
+                await self._update_subscriptions()
 
     def _route(self, instrument: Instrument) -> MarketSourcePort:
         """Pick a source by declared capabilities (+ failover order), not by name."""
@@ -202,33 +271,80 @@ class MarketService(MarketDataService):
             f"No market source found that supports asset class: {instrument.asset_class}"
         )
 
-    async def _start_pump(self, instrument: Instrument, channel: MarketChannel) -> None:
-        source = self._route(instrument)
-        key = (instrument, channel)
+    async def _update_subscriptions(self) -> None:
+        """Recalculate and update the active pump tasks for each source based on ref counts."""
+        # Group active (instrument, channel) by source
+        active_by_source: dict[
+            MarketSourcePort, list[tuple[Instrument, MarketChannel]]
+        ] = {}
+        for source in self.sources:
+            active_by_source[source] = []
 
-        async def pump() -> None:
-            try:
-                async for event in source.subscribe([instrument], [channel]):
-                    await self.bus.publish(event)
-            except asyncio.CancelledError:
-                pass
-            except Exception as e:
-                logger.exception(
-                    f"Upstream stream error for {instrument.symbol} {channel.value}: {e}"
-                )
+        for (inst, chan), count in self._ref_counts.items():
+            if count > 0:
+                try:
+                    source = self._route(inst)
+                    active_by_source[source].append((inst, chan))
+                except ValueError:
+                    pass
 
-        self._pump_tasks[key] = asyncio.create_task(
-            pump(), name=f"pump-{instrument.symbol}-{channel.value}"
-        )
+        # For each source, check if the subscription needs to be updated
+        for source, active_pairs in active_by_source.items():
+            current_task_info = self._pump_tasks.get(source)
 
-    async def _stop_pump(self, instrument: Instrument, channel: MarketChannel) -> None:
-        key = (instrument, channel)
-        if task := self._pump_tasks.pop(key, None):
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            if not active_pairs:
+                if current_task_info is not None:
+                    task, _, _ = current_task_info
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                    del self._pump_tasks[source]
+                continue
+
+            # Extract unique instruments and channels
+            new_insts = list({pair[0] for pair in active_pairs})
+            new_chans = list({pair[1] for pair in active_pairs})
+
+            # Check if we already have a task running with the exact same subscription
+            if current_task_info is not None:
+                _, running_insts, running_chans = current_task_info
+                if set(new_insts) == set(running_insts) and set(new_chans) == set(
+                    running_chans
+                ):
+                    continue
+
+                task, _, _ = current_task_info
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+            insts_to_sub = list(new_insts)
+            chans_to_sub = list(new_chans)
+
+            async def pump(s=source, insts=insts_to_sub, chans=chans_to_sub) -> None:
+                try:
+                    async for event in s.subscribe(insts, chans):
+                        await self.bus.publish(event)
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.exception(
+                        "Upstream stream error for source {} (instruments={}, channels={}): {}",
+                        s.name,
+                        [i.symbol for i in insts],
+                        [c.value for c in chans],
+                        e,
+                    )
+
+            task = asyncio.create_task(
+                pump(),
+                name=f"pump-source-{source.name}",
+            )
+            self._pump_tasks[source] = (task, insts_to_sub, chans_to_sub)
 
     def _multiplex(self, instrument: Instrument) -> AsyncIterator[Event]:
         """One upstream subscription per instrument, fanned out to all callers."""

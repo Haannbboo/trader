@@ -33,12 +33,12 @@ adapters:
       instruments: []
 
 # Active features to compute
-# features:
-# technical:
-#   - source: rsi
-#     period: 14
-#   - source: returns
-#     lags: [1, 5]
+features:
+  technical:
+    - source: rsi
+      period: 14
+  # - source: returns
+  #   lags: [1, 5]
 # crosssectional:
 #   - source: rank
 #     metric: returns_1
