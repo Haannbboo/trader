@@ -849,8 +849,10 @@ def test_alpaca_adapters_register_under_distinct_market_names() -> None:
 
     stock_cls = registry.get("market", "alpaca", "stock")
     option_cls = registry.get("market", "alpaca", "option")
+    crypto_cls = registry.get("market", "alpaca", "crypto")
     assert stock_cls is AlpacaStockMarketAdapter
     assert option_cls is AlpacaOptionMarketAdapter
+    assert crypto_cls is AlpacaCryptoMarketAdapter
 
 
 def test_alpaca_module_does_not_import_alpaca_py_at_import_time() -> None:
@@ -897,6 +899,11 @@ def test_alpaca_adapter_construction_does_not_import_alpaca_py() -> None:
             api_secret="s",
             historical_client=FakeOptionHistoricalClient(),
         )
+        crypto = AlpacaCryptoMarketAdapter(
+            api_key="k",
+            api_secret="s",
+            historical_client=FakeCryptoHistoricalClient(),
+        )
         alpaca_modules_after = {
             name
             for name in sys.modules
@@ -905,6 +912,7 @@ def test_alpaca_adapter_construction_does_not_import_alpaca_py() -> None:
         assert alpaca_modules_after == alpaca_modules_before
         assert stock.historical_client is not None
         assert option.historical_client is not None
+        assert crypto.historical_client is not None
     finally:
         pass
 
