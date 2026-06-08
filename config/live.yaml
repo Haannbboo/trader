@@ -37,6 +37,10 @@ features:
   technical:
     - source: rsi
       period: 14
+    - source: macd
+      fast_period: 12
+      slow_period: 26
+      signal_period: 9
   # - source: returns
   #   lags: [1, 5]
 # crosssectional:

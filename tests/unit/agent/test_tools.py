@@ -148,6 +148,7 @@ def test_tool_specs_advertising() -> None:
     assert "query_news" not in names1
     assert "get_factor" not in names1
     assert "get_rsi" not in names1
+    assert "get_macd" not in names1
 
     # Case 2: all services present
     layer2 = ToolLayer(
@@ -166,9 +167,12 @@ def test_tool_specs_advertising() -> None:
     assert "query_news" in names2
     assert "get_factor" in names2
     assert "get_rsi" in names2
+    assert "get_macd" in names2
 
     rsi_spec = next(t for t in specs2 if t["name"] == "get_rsi")
     assert rsi_spec["parameters"]["required"] == ["symbol"]
+    macd_spec = next(t for t in specs2 if t["name"] == "get_macd")
+    assert macd_spec["parameters"]["required"] == ["symbol"]
 
 
 @pytest.mark.asyncio
@@ -295,6 +299,14 @@ async def test_dispatch_news_and_features_tools() -> None:
     assert rsi_res["value"] == 70.5
     assert rsi_res["feature"] == "rsi"
     assert features.args[0] == "rsi"
+    assert features.args[1].symbol == "AAPL"
+    assert features.args[1].asset_class == AssetClass.EQUITY
+
+    # get_macd
+    macd_res = await layer.dispatch("get_macd", {"symbol": "AAPL"})
+    assert macd_res["value"] == 70.5
+    assert macd_res["feature"] == "macd"
+    assert features.args[0] == "macd"
     assert features.args[1].symbol == "AAPL"
     assert features.args[1].asset_class == AssetClass.EQUITY
 
