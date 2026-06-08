@@ -78,7 +78,7 @@ async def test_replay_empty_instruments_raises_value_error(tmp_db: Database) -> 
     sub = Subscription(event_types=(EventType.BAR,), instruments=())
     history = Repository(tmp_db)
 
-    with pytest.raises(ValueError, match="subscription.instruments"):
+    with pytest.raises(ValueError, match=r"subscription\.instruments"):
         async for _ in bus.replay(
             sub, _utc(2026, 1, 1), _utc(2026, 1, 2), history=history
         ):
@@ -332,7 +332,7 @@ async def test_replay_does_not_push_to_existing_subscribers(
         consumer_task.cancel()
         try:
             await consumer_task
-        except (asyncio.CancelledError, Exception):
+        except asyncio.CancelledError:
             pass
         await bus.stop()
 
