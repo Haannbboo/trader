@@ -101,5 +101,12 @@ agent.subscribe((event) => {
   }
 });
 
+// main.ts is headless-only until Task 9 (router rewrite). Treat the
+// optional `prompt` as required for this code path; the resolver throws
+// a clear error for missing -p, and the TUI/headless split will replace
+// this in Task 9.
+if (resolved.prompt === undefined) {
+  throw new Error("main: prompt is required (no -p and no router yet; this is the legacy headless path)");
+}
 await agent.prompt(resolved.prompt);
 process.stderr.write("\n");
