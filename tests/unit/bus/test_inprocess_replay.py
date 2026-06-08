@@ -293,6 +293,7 @@ async def test_replay_does_not_push_to_existing_subscribers(
     tmp_db: Database,
 ) -> None:
     bus = InProcessBus()
+    await bus.start()
     history = Repository(tmp_db)
 
     # A second subscriber is already attached to the bus; collect what it sees.
@@ -333,3 +334,4 @@ async def test_replay_does_not_push_to_existing_subscribers(
             await consumer_task
         except (asyncio.CancelledError, Exception):
             pass
+        await bus.stop()
