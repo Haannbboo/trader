@@ -147,6 +147,7 @@ def test_tool_specs_advertising() -> None:
     assert "get_option_bars" not in names1
     assert "query_news" not in names1
     assert "get_factor" not in names1
+    assert "get_rsi" not in names1
 
     # Case 2: all services present
     layer2 = ToolLayer(
@@ -164,6 +165,10 @@ def test_tool_specs_advertising() -> None:
     assert "get_option_bars" in names2
     assert "query_news" in names2
     assert "get_factor" in names2
+    assert "get_rsi" in names2
+
+    rsi_spec = next(t for t in specs2 if t["name"] == "get_rsi")
+    assert rsi_spec["parameters"]["required"] == ["symbol"]
 
 
 @pytest.mark.asyncio
@@ -284,6 +289,14 @@ async def test_dispatch_news_and_features_tools() -> None:
     assert factor_res["value"] == 70.5
     assert features.args[0] == "rsi_14"
     assert features.args[1].symbol == "AAPL"
+
+    # get_rsi
+    rsi_res = await layer.dispatch("get_rsi", {"symbol": "AAPL"})
+    assert rsi_res["value"] == 70.5
+    assert rsi_res["feature"] == "rsi"
+    assert features.args[0] == "rsi"
+    assert features.args[1].symbol == "AAPL"
+    assert features.args[1].asset_class == AssetClass.EQUITY
 
 
 def test_stream_specs() -> None:
