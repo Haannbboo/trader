@@ -41,6 +41,7 @@ from typing import Any
 
 from account import AccountService
 from bus import Bus, InProcessBus
+from contracts import AssetClass, Instrument
 from contracts.ports import AccountSourcePort, MarketSourcePort, NewsSourcePort
 from feature import FeatureService
 from feature.runtime import FeatureRuntime
@@ -137,6 +138,15 @@ def _build_bus(cfg: AppConfig) -> Bus:
         )
     logger.info("bus: InProcessBus")
     return InProcessBus()
+
+
+def _parse_instrument(symbol: str, asset_class: AssetClass) -> Instrument:
+    """Resolve a configured symbol string to a contracts.Instrument DTO."""
+    from contracts import occ_to_instrument
+
+    if asset_class == AssetClass.OPTION:
+        return occ_to_instrument(symbol)
+    return Instrument(symbol=symbol, asset_class=asset_class)
 
 
 async def _try_start(service: Any, label: str) -> bool:
@@ -269,6 +279,68 @@ async def run(config_path: str = "config/live.yaml") -> None:
             started_services.append(market_service)
         else:
             market_service = None
+
+    # Start background pump tasks for all configured market instruments
+    market_pump_tasks: list[asyncio.Task] = []
+    if market_service is not None:
+        from contracts import MarketChannel
+
+        # Loop over each market source configuration from YAML
+        for src_cfg in cfg.settings.adapters.market:
+            if not src_cfg.enabled:
+                continue
+
+            # Find the instantiated adapter matching this config
+            try:
+                cls = registry.get("market", src_cfg.source, src_cfg.name)
+                adapter = next((s for s in market_sources if isinstance(s, cls)), None)
+            except KeyError:
+                continue
+
+            if not adapter:
+                continue
+
+            # Resolve asset class
+            asset_classes = adapter.capabilities.asset_classes
+            if not asset_classes:
+                continue
+            primary_class = asset_classes[0]
+
+            # Parse configured instruments
+            symbols = src_cfg.params.get("instruments", [])
+            instruments = []
+            for sym in symbols:
+                try:
+                    inst = _parse_instrument(sym, primary_class)
+                    instruments.append(inst)
+                except Exception as e:
+                    logger.error(
+                        "Failed to parse instrument {} for source {}: {}",
+                        sym,
+                        src_cfg.source,
+                        e,
+                    )
+
+            if not instruments:
+                continue
+
+            # Start background pump subscription loop
+            async def run_pump(insts=instruments):
+                try:
+                    async for _ in market_service.subscribe(
+                        insts, [MarketChannel.BARS]
+                    ):
+                        pass
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.exception("Market subscription pump failed: {}", e)
+
+            task = asyncio.create_task(
+                run_pump(),
+                name=f"live-market-pump-{src_cfg.source}-{src_cfg.name or ''}",
+            )
+            market_pump_tasks.append(task)
 
     if news_service is not None:
         if await _try_start(news_service, "NewsService"):
