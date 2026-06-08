@@ -40,3 +40,9 @@ guardrails:
 agent:
   strategy: trend_following_agent
   react_loop_interval_seconds: 0.0  # Process events as fast as possible in backtests
+
+# Persistence configuration
+infra:
+  persistence:
+    dsn: sqlite+aiosqlite:///./backtest.db
+    enabled: true

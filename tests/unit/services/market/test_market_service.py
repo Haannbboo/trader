@@ -257,7 +257,7 @@ async def test_market_service_multiplexing() -> None:
 
     assert service._ref_counts[(instrument, MarketChannel.QUOTES)] == 1
     assert len(service._pump_tasks) == 1
-    initial_task = service._pump_tasks[(instrument, MarketChannel.QUOTES)]
+    initial_task = service._pump_tasks[source][0]
 
     # Start second iteration
     gen2 = iter2.__aiter__()
@@ -265,7 +265,7 @@ async def test_market_service_multiplexing() -> None:
 
     # Ref count should increment but NO new task should be spun up
     assert service._ref_counts[(instrument, MarketChannel.QUOTES)] == 2
-    assert service._pump_tasks[(instrument, MarketChannel.QUOTES)] is initial_task
+    assert service._pump_tasks[source][0] is initial_task
 
     # Clean up gen1
     await gen1.aclose()
@@ -404,3 +404,47 @@ async def test_market_service_subscribe_trades_event_types() -> None:
 
     assert bus.subscribed_subscription is not None
     assert EventType.QUOTE in bus.subscribed_subscription.event_types
+
+
+@pytest.mark.asyncio
+async def test_market_service_run_auto_subscribe() -> None:
+    source = MockMarketSource("stock_source", (AssetClass.EQUITY,))
+    setattr(source, "params", {"instruments": ["SPY", "QQQ"]})
+    bus = MockBus()
+
+    subscribed_instruments = []
+
+    class InterceptingMarketService(MarketService):
+        async def subscribe(self, instruments, channels):
+            subscribed_instruments.extend(instruments)
+            yield Event(
+                type=EventType.BAR,
+                source="test",
+                payload=None,
+                ts_event=datetime.now(timezone.utc),
+            )
+
+    service = InterceptingMarketService(sources=[source], bus=bus)  # type: ignore[arg-type]
+
+    task = asyncio.create_task(service.run())
+
+    # Wait until the run loop has subscribed to both configured instruments
+    # (with a generous timeout for slow CI), rather than sleeping a fixed
+    # interval. The InterceptingMarketService records the subscription in
+    # `subscribed_instruments` on its subscribe() call, so polling that
+    # list is the test's own signal that the loop is wired up.
+    deadline = asyncio.get_running_loop().time() + 2.0
+    seen: set[str] = set()
+    while asyncio.get_running_loop().time() < deadline:
+        seen = {inst.symbol for inst in subscribed_instruments}
+        if {"SPY", "QQQ"}.issubset(seen):
+            break
+        await asyncio.sleep(0.01)
+
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    assert {"SPY", "QQQ"}.issubset(seen)

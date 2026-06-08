@@ -30,8 +30,19 @@ class FeatureService(FeatureServiceInterface):
         instrument: Optional[Instrument] = None,
     ) -> FeatureValue:
         """Get the latest computed feature value for a given instrument."""
-        raise NotImplementedError()
+        inst_key = instrument.key if instrument else ""
+        key = (feature, inst_key)
+        if key in self.runtime.latest_values:
+            return self.runtime.latest_values[key]
+        raise ValueError(
+            f"No computed value found for feature '{feature}' and instrument '{inst_key}'"
+        )
 
-    def subscribe(self, features: list[str]) -> AsyncIterator[Event]:
+    async def subscribe(self, features: list[str]) -> AsyncIterator[Event]:
         """Subscribe to specific computed feature events."""
-        raise NotImplementedError()
+        from contracts import EventType, Subscription
+
+        sub = Subscription(event_types=(EventType.FEATURE,))
+        async for event in self.runtime.bus.subscribe(sub):
+            if event.payload and event.payload.feature in features:
+                yield event

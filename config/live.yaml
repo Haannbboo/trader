@@ -27,16 +27,22 @@ adapters:
     - source: alpaca
       name: stock
       feed: iex
+      instruments: ["SPY", "QQQ"]
     - source: alpaca
       name: option
+      instruments: []
 
 # Active features to compute
-# features:
-# technical:
-#   - source: rsi
-#     period: 14
-#   - source: returns
-#     lags: [1, 5]
+features:
+  technical:
+    - source: rsi
+      period: 14
+    - source: macd
+      fast_period: 12
+      slow_period: 26
+      signal_period: 9
+  # - source: returns
+  #   lags: [1, 5]
 # crosssectional:
 #   - source: rank
 #     metric: returns_1

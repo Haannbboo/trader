@@ -87,6 +87,8 @@ class ToolLayer:
             "get_option_bars",
             "query_news",
             "get_factor",
+            "get_rsi",
+            "get_macd",
         }
         for name in native_names:
             seen_tools[name] = "native"
@@ -357,6 +359,50 @@ class ToolLayer:
                     },
                 }
             )
+            specs.append(
+                {
+                    "name": "get_rsi",
+                    "description": "Get the latest RSI (Relative Strength Index) value for an instrument.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "symbol": {
+                                "type": "string",
+                                "description": "Symbol of the instrument (e.g. AAPL).",
+                            },
+                            "asset_class": {
+                                "type": "string",
+                                "enum": ["equity", "option", "crypto"],
+                                "default": "equity",
+                                "description": "Asset class of the instrument.",
+                            },
+                        },
+                        "required": ["symbol"],
+                    },
+                }
+            )
+            specs.append(
+                {
+                    "name": "get_macd",
+                    "description": "Get the latest MACD (Moving Average Convergence Divergence) line, signal line, and histogram for an instrument.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "symbol": {
+                                "type": "string",
+                                "description": "Symbol of the instrument (e.g. AAPL).",
+                            },
+                            "asset_class": {
+                                "type": "string",
+                                "enum": ["equity", "option", "crypto"],
+                                "default": "equity",
+                                "description": "Asset class of the instrument.",
+                            },
+                        },
+                        "required": ["symbol"],
+                    },
+                }
+            )
 
         for client in self._mcp_clients:
             for spec in client.cached_specs:
@@ -457,6 +503,24 @@ class ToolLayer:
                     asset_class=AssetClass(args.get("asset_class", "equity")),
                 )
             val = await self._features.get_value(args["feature"], instrument)
+            return self._serialize(val)
+        elif name == "get_rsi":
+            if self._features is None:
+                raise ValueError("Feature service is not available")
+            instrument = Instrument(
+                symbol=args["symbol"],
+                asset_class=AssetClass(args.get("asset_class", "equity")),
+            )
+            val = await self._features.get_value("rsi", instrument)
+            return self._serialize(val)
+        elif name == "get_macd":
+            if self._features is None:
+                raise ValueError("Feature service is not available")
+            instrument = Instrument(
+                symbol=args["symbol"],
+                asset_class=AssetClass(args.get("asset_class", "equity")),
+            )
+            val = await self._features.get_value("macd", instrument)
             return self._serialize(val)
         else:
             for client in self._mcp_clients:
