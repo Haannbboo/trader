@@ -426,6 +426,16 @@ async def run(config_path: str = "config/live.yaml") -> None:
 
     # 8. graceful shutdown
     logger.info("shutting down...")
+
+    # Cancel market pump tasks first so they release websocket streams gracefully
+    for t in market_pump_tasks:
+        t.cancel()
+    for t in market_pump_tasks:
+        try:
+            await t
+        except (asyncio.CancelledError, Exception):
+            pass
+
     for t in pending:
         t.cancel()
     for t in pending:
