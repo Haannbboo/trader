@@ -116,7 +116,9 @@ class InProcessBus:
         # into one timeline.
         bars: list[Bar] = []
         for inst in subscription.instruments:
-            for tf in Timeframe:  # timeframe filter is not on Subscription this iteration
+            for (
+                tf
+            ) in Timeframe:  # timeframe filter is not on Subscription this iteration
                 bars.extend(await history.fetch_bars(inst, tf, start, end))
 
         bars.sort(key=lambda b: b.ts_open + b.timeframe.interval)  # type: ignore[attr-defined]
