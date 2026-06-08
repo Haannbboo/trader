@@ -734,6 +734,94 @@ class AlpacaOptionMarketAdapter(_AlpacaMarketAdapterBase):
         return instrument_to_occ(instrument)
 
 
+# ---------------------------------------------------------------------------
+# Crypto adapter
+# ---------------------------------------------------------------------------
+@register("market", "alpaca", "crypto")
+class AlpacaCryptoMarketAdapter(_AlpacaMarketAdapterBase):
+    asset_class = AssetClass.CRYPTO
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+
+    # --- SDK factories (lazy imports so the module stays importable without
+    # the ``alpaca`` extra) ---
+    def _build_historical_client(self) -> _HistoricalClientLike:
+        from alpaca.data.historical.crypto import CryptoHistoricalDataClient
+
+        return CryptoHistoricalDataClient(  # type: ignore[return-value]
+            api_key=self.api_key,
+            secret_key=self.api_secret,
+        )
+
+    def _build_data_stream(self) -> _DataStreamLike:
+        from alpaca.data.live.crypto import CryptoDataStream
+
+        if self.api_key is None or self.api_secret is None:
+            raise ValueError("api_key and api_secret are required for Alpaca streaming")
+        return CryptoDataStream(  # type: ignore[return-value]
+            api_key=self.api_key,
+            secret_key=self.api_secret,
+        )
+
+    # --- Request builders ---
+    def _build_bars_request(
+        self,
+        symbol: str,
+        timeframe: Timeframe,
+        start: datetime,
+        end: datetime,
+    ) -> Any:
+        from alpaca.data.requests import CryptoBarsRequest
+
+        # CryptoBarsRequest has no `feed` kwarg. alpaca-py's get_crypto_bars
+        # accepts a method-level `feed: CryptoFeed = CryptoFeed.US`; we rely
+        # on that default via the base's _fetch_bars dispatch.
+        return CryptoBarsRequest(
+            symbol_or_symbols=symbol,
+            timeframe=_alpaca_timeframe(timeframe),
+            start=start,
+            end=end,
+        )
+
+    def _build_quote_request(self, symbol: str, feed: str | None = None) -> Any:
+        from alpaca.data.requests import CryptoLatestQuoteRequest
+
+        # `feed` is accepted to match the base's get_quote(instrument, feed=None)
+        # signature, but alpaca-py exposes a single CryptoFeed.US — there is no
+        # per-adapter allow-list to validate against. We deliberately swallow
+        # the arg rather than raise. See
+        # test_alpaca_crypto_get_quote_swallows_unsupported_feed_kwarg, which
+        # pins this behaviour.
+        return CryptoLatestQuoteRequest(symbol_or_symbols=symbol)
+
+    # --- Client method dispatch ---
+    def _fetch_bars(self, client: _HistoricalClientLike, request: Any) -> Any:
+        return client.get_crypto_bars(request)
+
+    def _fetch_quote(self, client: _HistoricalClientLike, request: Any) -> Any:
+        return client.get_crypto_latest_quote(request)
+
+    # --- Native symbol: pass through with a BASE/QUOTE shape check ---
+    def _native_symbol(self, instrument: Instrument) -> str:
+        # The asset-class check is redundant with the base's _assert_supported
+        # for the pull path, but it matches the option adapter's pattern and
+        # protects the streaming path's _instrument_for, which does not run
+        # _assert_supported before consulting _native_symbol.
+        if instrument.asset_class is not AssetClass.CRYPTO:
+            raise ValueError(
+                f"AlpacaCryptoMarketAdapter requires CRYPTO instruments, got "
+                f"{instrument.asset_class.value}"
+            )
+        symbol = instrument.symbol
+        if "/" not in symbol:
+            raise ValueError(
+                f"Crypto symbol must be in BASE/QUOTE form (e.g. 'BTC/USD'), "
+                f"got {symbol!r}"
+            )
+        return symbol
+
+
 __all__ = [
     "AlpacaOptionMarketAdapter",
     "AlpacaStockMarketAdapter",
