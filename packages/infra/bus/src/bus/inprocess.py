@@ -6,13 +6,13 @@ in-memory per-subscriber queues. Implements the Bus protocol so RedisStreamsBus
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import AsyncIterator, List, Optional, Tuple
 
 import anyio
 from anyio.streams.memory import MemoryObjectSendStream
-from contracts.ports import Subscription
-from contracts.schema import Event
+from contracts.ports import HistoryStore, Subscription
+from contracts.schema import Bar, Event, EventType, Timeframe
 from loguru import logger
 
 from ._filters import matches_subscription
@@ -84,18 +84,54 @@ class InProcessBus:
         subscription: Subscription,
         start: datetime,
         end: datetime,
+        *,
+        history: HistoryStore,
     ) -> AsyncIterator[Event]:
-        """Replay historical events matching `subscription` in [start, end).
+        """Replay historical BAR events matching `subscription` in [start, end),
+        sorted by `ts_open + timeframe.interval`. Iterator-only — does NOT
+        push to existing subscribers.
 
-        STUB: not implemented yet. The live stream only retains what fits
-        under MAXLEN; replay over long horizons needs a backfill store (cold
-        cache of older events). Wire this up after packages/persistence
-        is in place — likely a Redis Stream range scan for the warm window
-        and a separate store (S3 / object storage) for anything older.
+        Caller supplies `history` per-call. The bus does not own a HistoryStore;
+        the application layer (live/main.py or backtest/main.py) constructs one
+        and threads it through.
+
+        Known gaps (intentional this iteration):
+        - `subscription.event_types` is ignored — every yielded event is
+          `EventType.BAR` regardless of the filter. The future k-way merge
+          across event types (bars, news, fills) will respect this filter.
+        - `subscription.sources` is ignored — the `Bar` DTO has no `source`
+          field, so per-source filtering has nothing to filter on. Revisit
+          when `BarRow.source` flows into the DTO.
         """
-        raise NotImplementedError
-        if False:
-            yield  # make this an async generator so the AsyncIterator type is honest
+        if not subscription.instruments:
+            raise ValueError(
+                "InProcessBus.replay() requires subscription.instruments to be "
+                "non-empty; the HistoryStore cannot enumerate instruments."
+            )
+        # FUTURE: k-way merge across event types (bars, news, fills). The bar
+        # ordering key is ts_open + interval; the news key is published_at; the
+        # fill key is ts_event. When multi-event-type replay lands, switch this
+        # loop to a k-way heap that yields events in normalized-time order so a
+        # downstream consumer (RSI on bars + sentiment on news) can fold both
+        # into one timeline.
+        bars: list[Bar] = []
+        for inst in subscription.instruments:
+            for (
+                tf
+            ) in Timeframe:  # timeframe filter is not on Subscription this iteration
+                bars.extend(await history.fetch_bars(inst, tf, start, end))
+
+        bars.sort(key=lambda b: b.ts_open + b.timeframe.interval)  # type: ignore[attr-defined]
+
+        for bar in bars:
+            yield Event(
+                type=EventType.BAR,
+                source="replay",  # Bar has no `source` field; revisit when BarRow.source flows into the DTO
+                payload=bar,
+                ts_event=bar.ts_open + bar.timeframe.interval,  # type: ignore[attr-defined]
+                ts_ingest=datetime.now(timezone.utc),  # synthetic
+                # event_id auto-generated
+            )
 
     def _cleanup_closed_subscribers(self) -> None:
         """Cleans up inactive streams from the list."""

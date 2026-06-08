@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Any, AsyncIterator, Optional, cast
 
 import redis.asyncio
-from contracts.ports import Subscription
+from contracts.ports import HistoryStore, Subscription
 from contracts.schema import (
     Balance,
     Bar,
@@ -129,18 +129,19 @@ class RedisStreamBus:
         subscription: Subscription,
         start: datetime,
         end: datetime,
+        *,
+        history: HistoryStore,
     ) -> AsyncIterator[Event]:
         """Replay historical events matching `subscription` in [start, end).
 
-        STUB: not implemented yet. The live stream only retains what fits
-        under MAXLEN; replay over long horizons needs a backfill store (cold
-        cache of older events). Wire this up after packages/persistence
-        is in place — likely a Redis Stream range scan for the warm window
-        and a separate store (S3 / object storage) for anything older.
+        STUB: not implemented yet. The InProcessBus implementation reads
+        from a SQL-backed HistoryStore; this implementation will read from
+        a Redis stream range scan instead. `history` is accepted for
+        protocol-shape uniformity and is ignored here.
         """
         raise NotImplementedError
         if False:
-            yield  # make this an async generator so the AsyncIterator type is honest
+            yield  # make this an async generator so AsyncIterator is honest
 
     async def _subscribe(
         self,

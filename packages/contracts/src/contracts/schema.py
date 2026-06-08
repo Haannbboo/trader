@@ -26,7 +26,7 @@ Key design decisions (don't undo these without thinking):
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Generic, Optional, TypeVar
@@ -88,6 +88,22 @@ class Timeframe(str, Enum):
     M15 = "15m"
     H1 = "1h"
     D1 = "1d"
+
+
+_TIMEFRAME_INTERVALS: dict[Timeframe, timedelta] = {
+    Timeframe.S1: timedelta(seconds=1),
+    Timeframe.M1: timedelta(minutes=1),
+    Timeframe.M5: timedelta(minutes=5),
+    Timeframe.M15: timedelta(minutes=15),
+    Timeframe.H1: timedelta(hours=1),
+    Timeframe.D1: timedelta(days=1),
+}
+
+
+# Attach the property to Timeframe AFTER the enum body, so the dict is built.
+Timeframe.interval = property(  # type: ignore[attr-defined]
+    lambda self: _TIMEFRAME_INTERVALS[self]
+)
 
 
 class EventType(str, Enum):

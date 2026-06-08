@@ -137,6 +137,8 @@ class Bus(Protocol):
         subscription: Subscription,
         start: datetime,
         end: datetime,
+        *,
+        history: HistoryStore,
     ) -> AsyncIterator[Event]: ...
 
     # `group`: durable buses use it for consumer-group fan-out / replay.
