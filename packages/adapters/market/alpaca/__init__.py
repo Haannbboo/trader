@@ -1,7 +1,7 @@
-"""Alpaca market-data adapters (stock + option).
+"""Alpaca market-data adapters (stock + option + crypto).
 
 Alpaca splits its market-data REST and websocket surfaces by asset class, so
-this package exposes TWO adapters registered under distinct names:
+this package exposes THREE adapters registered under distinct names:
 
   - ``AlpacaStockMarketAdapter``  (``market`` / ``alpaca`` / ``stock``)
       REST:   ``StockHistoricalDataClient.get_stock_bars``
@@ -11,7 +11,11 @@ this package exposes TWO adapters registered under distinct names:
       REST:   ``OptionHistoricalDataClient.get_option_bars``
       Stream: ``OptionDataStream`` -> same three ``subscribe_*`` channels
 
-Both extend :class:`adapters._base.market.BaseMarketAdapter`, so they share the
+  - ``AlpacaCryptoMarketAdapter`` (``market`` / ``alpaca`` / ``crypto``)
+      REST:   ``CryptoHistoricalDataClient.get_crypto_bars``
+      Stream: ``CryptoDataStream`` -> same three ``subscribe_*`` channels
+
+All extend :class:`adapters._base.market.BaseMarketAdapter`, so they share the
 market flow (rate-limit -> fetch/recv -> normalize -> wrap in Event). The
 only source-specific bits filled in here are:
 
