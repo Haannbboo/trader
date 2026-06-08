@@ -427,12 +427,24 @@ async def test_market_service_run_auto_subscribe() -> None:
     service = InterceptingMarketService(sources=[source], bus=bus)  # type: ignore[arg-type]
 
     task = asyncio.create_task(service.run())
-    await asyncio.sleep(0.05)
+
+    # Wait until the run loop has subscribed to both configured instruments
+    # (with a generous timeout for slow CI), rather than sleeping a fixed
+    # interval. The InterceptingMarketService records the subscription in
+    # `subscribed_instruments` on its subscribe() call, so polling that
+    # list is the test's own signal that the loop is wired up.
+    deadline = asyncio.get_running_loop().time() + 2.0
+    seen: set[str] = set()
+    while asyncio.get_running_loop().time() < deadline:
+        seen = {inst.symbol for inst in subscribed_instruments}
+        if {"SPY", "QQQ"}.issubset(seen):
+            break
+        await asyncio.sleep(0.01)
+
     task.cancel()
     try:
         await task
     except asyncio.CancelledError:
         pass
 
-    assert any(inst.symbol == "SPY" for inst in subscribed_instruments)
-    assert any(inst.symbol == "QQQ" for inst in subscribed_instruments)
+    assert {"SPY", "QQQ"}.issubset(seen)

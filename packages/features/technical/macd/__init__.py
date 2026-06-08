@@ -25,6 +25,8 @@ What the library does vs what THIS owns:
 
 from __future__ import annotations
 
+from collections import deque
+from itertools import islice
 from typing import Any
 
 from contracts.ports import Subscription
@@ -52,13 +54,20 @@ class InstrumentMACDState:
     EMA seeds use the SMA of the first `period` closes, matching how
     pandas_ta / TA-Lib initialize the classical MACD. After seeding, the
     standard EMA recurrence applies.
+
+    `closes` is bounded to `slow_period` because that's the largest history
+    we ever need: the slow EMA's SMA seed reads the first `slow_period`
+    closes, and from then on we only consume the most recent close for the
+    recurrence. Bounding the deque (vs. an unbounded list) prevents the
+    long-running live feed from growing memory without bound — see RSI for
+    the parallel pattern (deque(maxlen=period+1)).
     """
 
     def __init__(self, fast_period: int, slow_period: int, signal_period: int) -> None:
         self.fast_period = fast_period
         self.slow_period = slow_period
         self.signal_period = signal_period
-        self.closes: list[float] = []
+        self.closes: deque[float] = deque(maxlen=slow_period)
         self.ema_fast: float | None = None
         self.ema_slow: float | None = None
         self.signal: float | None = None
@@ -154,29 +163,31 @@ class MACDProcessor:  # implements ports.Processor
             self._states[key] = state
 
         state.closes.append(float(bar.close))
+        close = float(bar.close)
 
         # --- Seed fast EMA (need `fast_period` closes) ---
         if state.ema_fast is None and len(state.closes) >= self._fast_period:
-            state.ema_fast = sum(state.closes[: self._fast_period]) / self._fast_period
+            state.ema_fast = (
+                sum(islice(state.closes, self._fast_period)) / self._fast_period
+            )
 
         # --- Seed slow EMA (need `slow_period` closes) ---
         if state.ema_slow is None and len(state.closes) >= self._slow_period:
-            state.ema_slow = sum(state.closes[: self._slow_period]) / self._slow_period
+            state.ema_slow = (
+                sum(islice(state.closes, self._slow_period)) / self._slow_period
+            )
 
-        # Until both EMAs exist, MACD is undefined — emit nothing.
+        # Advance each EMA independently from its own seed point. This
+        # matches pandas_ta's behavior: each EMA is computed against the
+        # full input series, not gated on the other EMA's existence. We
+        # still can't compute a MACD line until BOTH EMAs are seeded.
+        if state.ema_fast is not None:
+            state.ema_fast = (close - state.ema_fast) * self._k_fast + state.ema_fast
+        if state.ema_slow is not None:
+            state.ema_slow = (close - state.ema_slow) * self._k_slow + state.ema_slow
+
         if state.ema_fast is None or state.ema_slow is None:
             return []
-
-        # Advance the fast EMA one step (using the most recent close).
-        close = float(bar.close)
-        state.ema_fast = (close - state.ema_fast) * self._k_fast + state.ema_fast
-
-        # Slow EMA advances on every bar; its seed is on the `slow_period`-th
-        # bar (one step behind the fast EMA on the very first comparison),
-        # then the recurrence runs from there. We compute the slow EMA's
-        # recurrence step unconditionally so the two EMAs align by the
-        # `(slow_period + 1)`-th bar.
-        state.ema_slow = (close - state.ema_slow) * self._k_slow + state.ema_slow
 
         macd_line = state.ema_fast - state.ema_slow
 

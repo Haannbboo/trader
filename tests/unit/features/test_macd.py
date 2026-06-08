@@ -8,6 +8,7 @@ These tests pin the math, the per-instrument state isolation, and the
 meta-channel contract (signal_line, histogram, signal semantics).
 """
 
+from collections import deque
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -209,6 +210,40 @@ async def test_macd_initialize_clears_state() -> None:
     # 34 bars after reset: still in warmup, no emission.
     emitted = await _drive(processor, inst, tf, _rising_series(34), ts)
     assert emitted == []
+
+
+@pytest.mark.asyncio
+async def test_macd_closes_history_is_bounded() -> None:
+    """`state.closes` must be a bounded deque, not an unbounded list. Drives
+    well past `slow_period` bars and asserts the deque length stays pinned
+    at `slow_period` and the contents are the most recent closes (the
+    seed-time closes are dropped once the deque fills)."""
+    fast, slow, sig = 3, 6, 2
+    processor = MACDProcessor(fast_period=fast, slow_period=slow, signal_period=sig)
+    processor.initialize()
+
+    inst = Instrument(symbol="AAPL", asset_class=AssetClass.EQUITY)
+    tf = Timeframe.M1
+    ts = datetime(2026, 1, 1, 9, 30, tzinfo=timezone.utc)
+
+    # Drive 100 bars — well past slow_period.
+    prices = _rising_series(100, start=100.0, step=1.0)
+    await _drive(processor, inst, tf, prices, ts)
+
+    state = processor._states[(inst.key, tf.value)]
+    assert isinstance(
+        state.closes, deque
+    ), f"state.closes must be a deque (got {type(state.closes).__name__})"
+    assert (
+        state.closes.maxlen == slow
+    ), f"deque maxlen must equal slow_period (got {state.closes.maxlen})"
+    assert (
+        len(state.closes) == slow
+    ), f"deque length must stay pinned at slow_period (got {len(state.closes)})"
+    # Contents must be the most recent `slow` closes, not the seed-time
+    # ones. The 100-bar series ends at prices[99] = 199; the last `slow`
+    # closes are prices[100-slow:] = [194, 195, 196, 197, 198, 199].
+    assert list(state.closes) == prices[-slow:]
 
 
 def test_macd_initialize_applies_periods_from_config() -> None:

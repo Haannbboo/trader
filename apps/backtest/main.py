@@ -10,6 +10,7 @@ for p in (root_dir / "packages").glob("**/src"):
 
 
 import asyncio
+import contextlib
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -113,7 +114,15 @@ async def main() -> None:
     )
 
     # 5. Populate database if empty
-    symbols = ["AAPL", "MSFT"]
+    # Derive replay scope from `adapters.market[*].symbols` so that changing
+    # the backtest config's market symbols flows through here. Fall back to
+    # the original dev-only pair when the config has no market symbols (so
+    # the file remains runnable against a bare config).
+    market_cfgs = config.get("adapters", {}).get("market", [])
+    symbols = [sym for src in market_cfgs for sym in src.get("symbols", [])] or [
+        "AAPL",
+        "MSFT",
+    ]
     async with db.session() as session:
         from persistence.models import BarRow
         from sqlalchemy import func, select
@@ -214,6 +223,8 @@ async def main() -> None:
     # Allow async queue to process any outstanding signals
     await anyio.sleep(1.0)
     feature_logging_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await feature_logging_task
 
     # 8. Retrieve Backtest Results
     try:
@@ -234,6 +245,8 @@ async def main() -> None:
             await agent.stop()
         except NotImplementedError:
             pass
+    await feature_runtime.stop()
+    await mock_account.stop()
     await bus.stop()
 
 

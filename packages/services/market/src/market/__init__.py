@@ -226,6 +226,12 @@ class MarketService(MarketDataService):
     ) -> AsyncIterator[Event]:
         """Subscribe to real-time streams (quotes, trades, bars) for instruments."""
         async with self._lock:
+            # Validate routeability up front so unroutable instruments raise
+            # immediately at the call site, before any ref count is taken.
+            # _route() is a pure read of self.sources / source.capabilities —
+            # no I/O, no mutation — so this is safe to call under the lock.
+            for inst in instruments:
+                self._route(inst)
             for inst in instruments:
                 for chan in channels:
                     key = (inst, chan)
@@ -282,11 +288,13 @@ class MarketService(MarketDataService):
 
         for (inst, chan), count in self._ref_counts.items():
             if count > 0:
-                try:
-                    source = self._route(inst)
-                    active_by_source[source].append((inst, chan))
-                except ValueError:
-                    pass
+                # All entries in _ref_counts have already been routed by
+                # subscribe() under the lock, so this should never raise.
+                # If it does, surface the error rather than silently dropping
+                # the instrument — a caller waiting on a bus subscription
+                # that no pump is feeding will hang forever.
+                source = self._route(inst)
+                active_by_source[source].append((inst, chan))
 
         # For each source, check if the subscription needs to be updated
         for source, active_pairs in active_by_source.items():
