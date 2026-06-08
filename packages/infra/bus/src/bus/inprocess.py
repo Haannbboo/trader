@@ -119,14 +119,14 @@ class InProcessBus:
             for tf in Timeframe:  # timeframe filter is not on Subscription this iteration
                 bars.extend(await history.fetch_bars(inst, tf, start, end))
 
-        bars.sort(key=lambda b: b.ts_open + b.timeframe.interval)
+        bars.sort(key=lambda b: b.ts_open + b.timeframe.interval)  # type: ignore[attr-defined]
 
         for bar in bars:
             yield Event(
                 type=EventType.BAR,
                 source="replay",  # Bar has no `source` field; revisit when BarRow.source flows into the DTO
                 payload=bar,
-                ts_event=bar.ts_open + bar.timeframe.interval,
+                ts_event=bar.ts_open + bar.timeframe.interval,  # type: ignore[attr-defined]
                 ts_ingest=datetime.now(timezone.utc),  # synthetic
                 # event_id auto-generated
             )
