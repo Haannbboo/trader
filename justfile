@@ -48,7 +48,7 @@ cli *args:
 # Drive a one-shot Pi Agent against the live gateway (apps/live must be running)
 # Flags: -p "<prompt>" (headless), -c (continue last session), -r (resume picker)
 agent *args:
-    cd apps/agent && pnpm start -- {{args}}
+    cd apps/agent && pnpm install && pnpm start -- {{args}}
 
 # Start local infrastructure (Redis) in the background; waits until healthy
 up:

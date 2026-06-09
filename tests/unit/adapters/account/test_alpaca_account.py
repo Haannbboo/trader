@@ -19,6 +19,7 @@ from contracts import (
     Side,
     TimeInForce,
 )
+from contracts.errors import OrderRejectedError
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[3] / "fixtures" / "alpaca"
 
@@ -65,6 +66,22 @@ class FakeTradingClient:
 
     def cancel_order_by_id(self, order_id: str) -> None:
         self.canceled_order_id = order_id
+
+
+class RejectingTradingClient(FakeTradingClient):
+    def submit_order(self, order_data: Any) -> dict:
+        from alpaca.common.exceptions import APIError
+
+        self.submitted_order = order_data
+        raise APIError('{"code": 42210000, "message": "invalid crypto time in force"}')
+
+
+class NonJsonRejectingTradingClient(FakeTradingClient):
+    def submit_order(self, order_data: Any) -> dict:
+        from alpaca.common.exceptions import APIError
+
+        self.submitted_order = order_data
+        raise APIError("upstream 500")
 
 
 class FakeTradingStream:
@@ -189,6 +206,80 @@ async def test_alpaca_account_places_and_cancels_orders() -> None:
     assert submitted.broker_order_id == "submitted-1"
     assert submitted.status == OrderStatus.PENDING_NEW
     assert client.canceled_order_id == "submitted-1"
+
+
+def test_alpaca_account_builds_crypto_market_order_with_gtc() -> None:
+    from alpaca.trading.enums import TimeInForce as AlpacaTimeInForce
+
+    adapter = AlpacaAccountAdapter(api_key="key", api_secret="secret")
+    order = Order(
+        client_order_id="btc-buy-001-20260609",
+        instrument=Instrument(symbol="BTC/USD", asset_class=AssetClass.CRYPTO),
+        side=Side.BUY,
+        quantity=Decimal("0.001"),
+        order_type=OrderType.MARKET,
+        tif=TimeInForce.GTC,
+    )
+
+    request = adapter._to_alpaca_order_request(order)
+
+    assert request.symbol == "BTC/USD"
+    assert request.qty == 0.001
+    assert request.time_in_force is AlpacaTimeInForce.GTC
+    assert request.to_request_fields()["time_in_force"] is AlpacaTimeInForce.GTC
+
+
+def test_alpaca_account_rejects_crypto_market_day_order_before_broker_call() -> None:
+    adapter = AlpacaAccountAdapter(api_key="key", api_secret="secret")
+    order = Order(
+        client_order_id="btc-buy-001-20260609",
+        instrument=Instrument(symbol="BTC/USD", asset_class=AssetClass.CRYPTO),
+        side=Side.BUY,
+        quantity=Decimal("0.001"),
+        order_type=OrderType.MARKET,
+        tif=TimeInForce.DAY,
+    )
+
+    with pytest.raises(ValueError, match="crypto orders support"):
+        adapter._to_alpaca_order_request(order)
+
+
+@pytest.mark.asyncio
+async def test_alpaca_account_wraps_broker_order_rejection() -> None:
+    adapter = AlpacaAccountAdapter(
+        api_key="key",
+        api_secret="secret",
+        trading_client=RejectingTradingClient(),
+    )
+    order = Order(
+        client_order_id="client-reject",
+        instrument=Instrument(symbol="AAPL", asset_class=AssetClass.EQUITY),
+        side=Side.BUY,
+        quantity=Decimal("1"),
+        order_type=OrderType.MARKET,
+    )
+
+    with pytest.raises(OrderRejectedError, match="invalid crypto time in force"):
+        await adapter.place_order(order)
+
+
+@pytest.mark.asyncio
+async def test_alpaca_account_wraps_non_json_broker_order_rejection() -> None:
+    adapter = AlpacaAccountAdapter(
+        api_key="key",
+        api_secret="secret",
+        trading_client=NonJsonRejectingTradingClient(),
+    )
+    order = Order(
+        client_order_id="client-reject",
+        instrument=Instrument(symbol="AAPL", asset_class=AssetClass.EQUITY),
+        side=Side.BUY,
+        quantity=Decimal("1"),
+        order_type=OrderType.MARKET,
+    )
+
+    with pytest.raises(OrderRejectedError, match="upstream 500"):
+        await adapter.place_order(order)
 
 
 @pytest.mark.asyncio

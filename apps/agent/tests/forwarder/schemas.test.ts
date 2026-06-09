@@ -115,8 +115,7 @@ describe("jsonSchemaToTypeBox", () => {
         tif: {
           type: "string",
           enum: ["day", "gtc", "ioc", "fok"],
-          default: "day",
-          description: "Time in force.",
+          description: "Time in force. Defaults to day for equities and gtc for crypto.",
         },
       },
       required: ["client_order_id", "symbol", "side", "quantity"],
@@ -154,7 +153,7 @@ describe("jsonSchemaToTypeBox", () => {
           tif: Type.Optional(
             Type.Union(
               [Type.Literal("day"), Type.Literal("gtc"), Type.Literal("ioc"), Type.Literal("fok")],
-              { description: "Time in force." },
+              { description: "Time in force. Defaults to day for equities and gtc for crypto." },
             ),
           ),
         },

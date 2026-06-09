@@ -35,6 +35,7 @@ from contracts import (
     Instrument,
     Order,
     OrderFilter,
+    OrderRejectedError,
     OrderStatus,
     OrderType,
     Position,
@@ -208,10 +209,15 @@ class AlpacaAccountAdapter(BaseAccountAdapter):
         return [self._as_dict(order) for order in orders]
 
     async def _submit_raw(self, order: Order) -> dict:
-        submitted = await asyncio.to_thread(
-            self._require_trading_client().submit_order,
-            self._to_alpaca_order_request(order),
-        )
+        try:
+            submitted = await asyncio.to_thread(
+                self._require_trading_client().submit_order,
+                self._to_alpaca_order_request(order),
+            )
+        except Exception as exc:
+            if self._is_alpaca_api_error(exc):
+                raise OrderRejectedError(self._alpaca_api_error_message(exc)) from exc
+            raise
         return self._as_dict(submitted)
 
     async def _cancel_raw(self, broker_order_id: str) -> None:
@@ -264,6 +270,8 @@ class AlpacaAccountAdapter(BaseAccountAdapter):
             StopOrderRequest,
         )
 
+        self._validate_order_supported_by_alpaca(order)
+
         kwargs = {
             "symbol": order.instrument.symbol,
             "qty": float(order.quantity),
@@ -303,6 +311,18 @@ class AlpacaAccountAdapter(BaseAccountAdapter):
             )
 
         raise ValueError(f"Unsupported order type: {order.order_type}")
+
+    def _validate_order_supported_by_alpaca(self, order: Order) -> None:
+        if order.instrument.asset_class is not AssetClass.CRYPTO:
+            return
+
+        if order.order_type is OrderType.STOP:
+            raise ValueError(
+                "Alpaca crypto orders support market, limit, and stop_limit"
+            )
+
+        if order.tif not in {TimeInForce.GTC, TimeInForce.IOC}:
+            raise ValueError("Alpaca crypto orders support time_in_force gtc or ioc")
 
     # --- source-specific normalization ---
     def _normalize_order(self, raw: dict) -> Order:
@@ -538,6 +558,22 @@ class AlpacaAccountAdapter(BaseAccountAdapter):
             OrderFilter.CLOSED: QueryOrderStatus.CLOSED,
             OrderFilter.ALL: QueryOrderStatus.ALL,
         }[order_filter]
+
+    @staticmethod
+    def _is_alpaca_api_error(exc: Exception) -> bool:
+        from alpaca.common.exceptions import APIError
+
+        return isinstance(exc, APIError)
+
+    @staticmethod
+    def _alpaca_api_error_message(exc: Exception) -> str:
+        try:
+            message = getattr(exc, "message", None)
+        except Exception:
+            message = None
+        if isinstance(message, str) and message:
+            return message
+        return str(exc)
 
     @staticmethod
     def _normalize_rest_base_url(base_url: str | None) -> str | None:

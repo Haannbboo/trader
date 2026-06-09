@@ -174,8 +174,10 @@ def test_tool_specs_advertising() -> None:
     assert "cancel_order" in names1
     assert "get_stock_quote" not in names1
     assert "get_option_quote" not in names1
+    assert "get_crypto_quote" not in names1
     assert "get_stock_bars" not in names1
     assert "get_option_bars" not in names1
+    assert "get_crypto_bars" not in names1
     assert "query_news" not in names1
     assert "get_factor" not in names1
     assert "get_rsi" not in names1
@@ -193,8 +195,10 @@ def test_tool_specs_advertising() -> None:
     assert "get_balance" in names2
     assert "get_stock_quote" in names2
     assert "get_option_quote" in names2
+    assert "get_crypto_quote" in names2
     assert "get_stock_bars" in names2
     assert "get_option_bars" in names2
+    assert "get_crypto_bars" in names2
     assert "query_news" in names2
     assert "get_factor" in names2
     assert "get_rsi" in names2
@@ -246,6 +250,21 @@ async def test_dispatch_account_tools() -> None:
     assert account.placed_order is not None
     assert account.placed_order.quantity == Decimal("5")
     assert account.placed_order.limit_price == Decimal("175.50")
+
+    # crypto place_order: agent calls often omit tif, but Alpaca crypto market
+    # orders cannot use the equity-oriented DAY default.
+    crypto_args = {
+        "client_order_id": "btc-buy-001-20260609",
+        "symbol": "BTC/USD",
+        "asset_class": "crypto",
+        "side": "buy",
+        "quantity": "0.001",
+        "order_type": "market",
+    }
+    await layer.dispatch("place_order", crypto_args)
+    assert account.placed_order is not None
+    assert account.placed_order.instrument.asset_class == AssetClass.CRYPTO
+    assert account.placed_order.tif == TimeInForce.GTC
 
     # cancel_order
     cancel_res = await layer.dispatch("cancel_order", {"broker_order_id": "broker-456"})
@@ -318,6 +337,29 @@ async def test_dispatch_market_tools() -> None:
     assert len(option_bars_res["bars"]) == 1
     assert option_bars_res["bars"][0]["close"] == "180.50"
     assert market.bars_args[0].asset_class == AssetClass.OPTION
+    assert market.bars_args[1] == Timeframe.M1
+
+    # get_crypto_quote
+    crypto_quote_res = await layer.dispatch("get_crypto_quote", {"symbol": "BTC/USD"})
+    assert crypto_quote_res["bid"] == "180.50"
+    assert crypto_quote_res["ask"] == "180.60"
+    assert market.instrument_quote.symbol == "BTC/USD"
+    assert market.instrument_quote.asset_class == AssetClass.CRYPTO
+
+    # get_crypto_bars
+    crypto_bars_res = await layer.dispatch(
+        "get_crypto_bars",
+        {
+            "symbol": "BTC/USD",
+            "timeframe": "1m",
+            "start": "2026-06-02T01:00:00Z",
+            "end": "2026-06-02T02:00:00Z",
+        },
+    )
+    assert len(crypto_bars_res["bars"]) == 1
+    assert crypto_bars_res["bars"][0]["close"] == "180.50"
+    assert market.bars_args[0].asset_class == AssetClass.CRYPTO
+    assert market.bars_args[0].symbol == "BTC/USD"
     assert market.bars_args[1] == Timeframe.M1
 
 

@@ -85,8 +85,10 @@ class ToolLayer:
             "cancel_order",
             "get_stock_quote",
             "get_option_quote",
+            "get_crypto_quote",
             "get_stock_bars",
             "get_option_bars",
+            "get_crypto_bars",
             "query_news",
             "get_factor",
             "get_rsi",
@@ -184,8 +186,10 @@ class ToolLayer:
                         "tif": {
                             "type": "string",
                             "enum": ["day", "gtc", "ioc", "fok"],
-                            "default": "day",
-                            "description": "Time in force.",
+                            "description": (
+                                "Time in force. Defaults to day for equities and gtc "
+                                "for crypto."
+                            ),
                         },
                     },
                     "required": ["client_order_id", "symbol", "side", "quantity"],
@@ -329,6 +333,51 @@ class ToolLayer:
                     },
                 }
             )
+            specs.append(
+                {
+                    "name": "get_crypto_quote",
+                    "description": "Fetch the current bid/ask quote for a crypto instrument.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "symbol": {
+                                "type": "string",
+                                "description": "Symbol of the crypto pair in BASE/QUOTE form (e.g. BTC/USD).",
+                            },
+                        },
+                        "required": ["symbol"],
+                    },
+                }
+            )
+            specs.append(
+                {
+                    "name": "get_crypto_bars",
+                    "description": "Fetch historical bars for a crypto instrument.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "symbol": {
+                                "type": "string",
+                                "description": "Symbol of the crypto pair in BASE/QUOTE form (e.g. BTC/USD).",
+                            },
+                            "timeframe": {
+                                "type": "string",
+                                "enum": ["1s", "1m", "5m", "15m", "1h", "1d"],
+                                "description": "Bar timeframe size.",
+                            },
+                            "start": {
+                                "type": "string",
+                                "description": "Start ISO-8601 timestamp (e.g. 2026-06-01T00:00:00Z) in UTC.",
+                            },
+                            "end": {
+                                "type": "string",
+                                "description": "End ISO-8601 timestamp (e.g. 2026-06-02T00:00:00Z) in UTC.",
+                            },
+                        },
+                        "required": ["symbol", "timeframe", "start", "end"],
+                    },
+                }
+            )
 
         if self._news is not None:
             specs.append(
@@ -450,7 +499,7 @@ class ToolLayer:
         """Route ONE tool call to the owning service method; validate args;
         serialize the result. Maps:
             get_balance/get_positions/place_order/cancel_order -> account
-            get_stock_quote/get_option_quote/get_stock_bars/get_option_bars -> market
+            get_stock_quote/get_option_quote/get_crypto_quote/get_stock_bars/get_option_bars/get_crypto_bars -> market
             query_news                                         -> news
             get_factor                                         -> features
         place_order goes through AccountService (-> guardrail); the tool layer
@@ -506,6 +555,25 @@ class ToolLayer:
                 raise ValueError("Market service is not available")
             instrument = Instrument(
                 symbol=args["symbol"], asset_class=AssetClass.OPTION
+            )
+            timeframe = Timeframe(args["timeframe"])
+            start = datetime.fromisoformat(args["start"].replace("Z", "+00:00"))
+            end = datetime.fromisoformat(args["end"].replace("Z", "+00:00"))
+            bars = await self._market.get_bars(instrument, timeframe, start, end)
+            return {"bars": self._serialize(bars)}
+        elif name == "get_crypto_quote":
+            if self._market is None:
+                raise ValueError("Market service is not available")
+            instrument = Instrument(
+                symbol=args["symbol"], asset_class=AssetClass.CRYPTO
+            )
+            quote = await self._market.get_quote(instrument)
+            return self._serialize(quote)
+        elif name == "get_crypto_bars":
+            if self._market is None:
+                raise ValueError("Market service is not available")
+            instrument = Instrument(
+                symbol=args["symbol"], asset_class=AssetClass.CRYPTO
             )
             timeframe = Timeframe(args["timeframe"])
             start = datetime.fromisoformat(args["start"].replace("Z", "+00:00"))
@@ -627,11 +695,17 @@ class ToolLayer:
         """Translate flat agent args into a typed Order. Kept explicit because
         this is the boundary where loose tool input becomes a money-moving DTO —
         validate hard here."""
+        asset_class = AssetClass(args.get("asset_class", "equity"))
+        tif = args.get("tif")
+        if tif is None:
+            # Alpaca crypto orders cannot use the equity-oriented DAY default.
+            tif = "gtc" if asset_class is AssetClass.CRYPTO else "day"
+
         return Order(
             client_order_id=args["client_order_id"],
             instrument=Instrument(
                 symbol=args["symbol"],
-                asset_class=AssetClass(args.get("asset_class", "equity")),
+                asset_class=asset_class,
             ),
             side=Side(args["side"]),
             quantity=Decimal(str(args["quantity"])),
@@ -641,5 +715,5 @@ class ToolLayer:
                 if args.get("limit_price") is not None
                 else None
             ),
-            tif=TimeInForce(args.get("tif", "day")),
+            tif=TimeInForce(tif),
         )

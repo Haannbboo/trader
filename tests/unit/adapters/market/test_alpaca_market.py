@@ -19,6 +19,7 @@ from typing import Any, Callable, Coroutine
 
 import pytest
 from adapters.market.alpaca import (
+    AlpacaCryptoMarketAdapter,
     AlpacaOptionMarketAdapter,
     AlpacaStockMarketAdapter,
 )
@@ -137,6 +138,47 @@ class FakeOptionDataStream(FakeStockDataStream):
         self.quote = load_fixture("option_quote.json")
         self.trade = load_fixture("option_trade.json")
         self.bar = load_fixture("option_bars.json")["bars"][0]
+
+
+# ---------------------------------------------------------------------------
+# Fakes: crypto surfaces for the AlpacaCryptoMarketAdapter tests.
+# ---------------------------------------------------------------------------
+class FakeCryptoHistoricalClient:
+    """Narrow stand-in for alpaca.data.historical.crypto.CryptoHistoricalDataClient.
+
+    Mirrors the pattern of FakeStockHistoricalClient: payload attributes are
+    instance-level (not copied) so tests can mutate ``bars_payload`` after
+    construction. The zero-value test depends on this mutability.
+    """
+
+    def __init__(self) -> None:
+        self.bars_payload = load_fixture("crypto_bars.json")
+        self.quote_payload = load_fixture("crypto_quote.json")
+        self.last_request: Any = None
+
+    def get_crypto_bars(self, request: Any) -> Any:
+        self.last_request = request
+        return {"BTC/USD": self.bars_payload["bars"]}
+
+    def get_crypto_latest_quote(self, request: Any) -> Any:
+        self.last_request = request
+        return {"BTC/USD": self.quote_payload}
+
+
+class FakeCryptoDataStream(FakeStockDataStream):
+    """Streaming fake for the crypto adapter; mirrors FakeOptionDataStream.
+
+    The base class wires ``subscribe_trades`` / ``subscribe_quotes`` /
+    ``subscribe_bars`` and ``run`` (which fires one handler per registered
+    channel). We only override the payloads to use crypto fixtures so the
+    streaming tests can assert crypto-specific fields (e.g. last price 42050.10).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.quote = load_fixture("crypto_quote.json")
+        self.trade = load_fixture("crypto_trade.json")
+        self.bar = load_fixture("crypto_bars.json")["bars"][0]
 
 
 # ---------------------------------------------------------------------------
@@ -593,6 +635,311 @@ def test_alpaca_option_caps_capabilities_at_option() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Crypto adapter
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_alpaca_crypto_get_bars_normalizes_fixture_to_schema_bars() -> None:
+    client = FakeCryptoHistoricalClient()
+    adapter = AlpacaCryptoMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=client,
+    )
+    instrument = Instrument(symbol="BTC/USD", asset_class=AssetClass.CRYPTO)
+    start = datetime(2024, 1, 19, 14, 30, tzinfo=timezone.utc)
+    end = datetime(2024, 1, 19, 15, 0, tzinfo=timezone.utc)
+
+    bars = await adapter.get_bars(instrument, Timeframe.M1, start, end)
+
+    assert len(bars) == 2
+    assert bars[0].instrument.symbol == "BTC/USD"
+    assert bars[0].instrument.asset_class == AssetClass.CRYPTO
+    assert bars[0].timeframe == Timeframe.M1
+    assert bars[0].open == Decimal("42000.10")
+    assert bars[0].high == Decimal("42100.80")
+    assert bars[0].low == Decimal("41900.95")
+    assert bars[0].close == Decimal("42050.55")
+    assert bars[0].volume == Decimal("12.5")
+    assert bars[0].vwap == Decimal("42040.40")
+    assert bars[0].trades == 87
+    assert bars[0].ts_open == datetime(2024, 1, 19, 14, 30, tzinfo=timezone.utc)
+    assert bars[1].close == Decimal("42100.00")
+    assert client.last_request.symbol_or_symbols == "BTC/USD"
+    assert client.last_request.timeframe.amount == 1
+    assert client.last_request.timeframe.unit.name == "Minute"
+    # CryptoBarsRequest does not accept a feed kwarg; mirror the option test.
+    assert "feed" not in client.last_request.to_request_fields()
+
+
+@pytest.mark.asyncio
+async def test_alpaca_crypto_get_bars_preserves_zero_values() -> None:
+    """Regression test: zero prices/volumes/trade counts must not be coerced to None.
+
+    Depends on FakeCryptoHistoricalClient.bars_payload being a mutable attribute
+    (not a copy in __init__); we mutate it here to feed in zero-valued bars.
+    """
+    client = FakeCryptoHistoricalClient()
+    client.bars_payload = {
+        "bars": [
+            {
+                "t": "2024-01-19T14:30:00Z",
+                "o": 0,
+                "h": 0,
+                "l": 0,
+                "c": 0,
+                "v": 0,
+                "vw": 0,
+                "n": 0,
+            }
+        ]
+    }
+    adapter = AlpacaCryptoMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=client,
+    )
+    instrument = Instrument(symbol="BTC/USD", asset_class=AssetClass.CRYPTO)
+    start = datetime(2024, 1, 19, 14, 30, tzinfo=timezone.utc)
+    end = datetime(2024, 1, 19, 15, 0, tzinfo=timezone.utc)
+
+    bars = await adapter.get_bars(instrument, Timeframe.M1, start, end)
+
+    assert len(bars) == 1
+    assert bars[0].open == Decimal("0")
+    assert bars[0].high == Decimal("0")
+    assert bars[0].low == Decimal("0")
+    assert bars[0].close == Decimal("0")
+    assert bars[0].volume == Decimal("0")
+    assert bars[0].vwap == Decimal("0")
+    assert bars[0].trades == 0
+
+
+@pytest.mark.asyncio
+async def test_alpaca_crypto_get_quote_normalizes_fixture_to_schema_quote() -> None:
+    client = FakeCryptoHistoricalClient()
+    adapter = AlpacaCryptoMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=client,
+    )
+    instrument = Instrument(symbol="BTC/USD", asset_class=AssetClass.CRYPTO)
+
+    quote = await adapter.get_quote(instrument)
+
+    assert quote.instrument.symbol == "BTC/USD"
+    assert quote.instrument.asset_class == AssetClass.CRYPTO
+    assert quote.bid == Decimal("42000.45")
+    assert quote.ask == Decimal("42000.50")
+    assert quote.bid_size == Decimal("1.5")
+    assert quote.ask_size == Decimal("2.0")
+    assert quote.last == Decimal("42000.48")
+    assert quote.last_size == Decimal("0.5")
+    assert quote.ts_event == datetime(
+        2024, 1, 19, 14, 30, 0, 123456, tzinfo=timezone.utc
+    )
+    assert client.last_request.symbol_or_symbols == "BTC/USD"
+
+
+@pytest.mark.asyncio
+async def test_alpaca_crypto_rejects_non_crypto_instrument() -> None:
+    """An EQUITY or OPTION instrument must raise ValueError from _assert_supported."""
+    client = FakeCryptoHistoricalClient()
+    adapter = AlpacaCryptoMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=client,
+    )
+    equity = Instrument(symbol="AAPL", asset_class=AssetClass.EQUITY)
+    start = datetime(2024, 1, 19, 14, 30, tzinfo=timezone.utc)
+    end = datetime(2024, 1, 19, 15, 0, tzinfo=timezone.utc)
+
+    with pytest.raises(ValueError, match="only supports crypto"):
+        await adapter.get_bars(equity, Timeframe.M1, start, end)
+
+
+@pytest.mark.asyncio
+async def test_alpaca_crypto_rejects_malformed_symbol() -> None:
+    """A symbol without a '/' slash is rejected at _native_symbol."""
+    client = FakeCryptoHistoricalClient()
+    adapter = AlpacaCryptoMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=client,
+    )
+    bad = Instrument(symbol="BTCUSD", asset_class=AssetClass.CRYPTO)
+    start = datetime(2024, 1, 19, 14, 30, tzinfo=timezone.utc)
+    end = datetime(2024, 1, 19, 15, 0, tzinfo=timezone.utc)
+
+    with pytest.raises(ValueError, match="BASE/QUOTE"):
+        await adapter.get_bars(bad, Timeframe.M1, start, end)
+
+
+@pytest.mark.asyncio
+async def test_alpaca_crypto_passes_symbol_through_to_native() -> None:
+    """The symbol 'BTC/USD' must reach the SDK request unchanged (no split/reformat)."""
+    client = FakeCryptoHistoricalClient()
+    adapter = AlpacaCryptoMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=client,
+    )
+    instrument = Instrument(symbol="ETH/USDC", asset_class=AssetClass.CRYPTO)
+    start = datetime(2024, 1, 19, 14, 30, tzinfo=timezone.utc)
+    end = datetime(2024, 1, 19, 15, 0, tzinfo=timezone.utc)
+
+    await adapter.get_bars(instrument, Timeframe.M1, start, end)
+
+    assert client.last_request.symbol_or_symbols == "ETH/USDC"
+
+
+@pytest.mark.asyncio
+async def test_alpaca_crypto_get_quote_swallows_unsupported_feed_kwarg() -> None:
+    """Pins the one behavioural divergence from stock/option: the feed kwarg
+    is accepted but not validated against a per-adapter allow-list. This
+    matches alpaca-py's single-CryptoFeed reality. A future refactor that
+    re-introduces validation will break this test.
+    """
+    client = FakeCryptoHistoricalClient()
+    adapter = AlpacaCryptoMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=client,
+    )
+    instrument = Instrument(symbol="BTC/USD", asset_class=AssetClass.CRYPTO)
+
+    quote = await adapter.get_quote(instrument, feed="opra")
+
+    assert quote.instrument.symbol == "BTC/USD"
+    assert quote.bid == Decimal("42000.45")
+
+
+def test_alpaca_crypto_is_registered_under_market_alpaca_crypto() -> None:
+    from plugins import registry
+
+    crypto_cls = registry.get("market", "alpaca", "crypto")
+    assert crypto_cls is AlpacaCryptoMarketAdapter
+
+
+def test_alpaca_crypto_data_stream_constructs_crypto_data_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches a typo in the lazy import path for CryptoDataStream.
+
+    Mirrors test_alpaca_option_data_stream_uses_feed (line ~515 of this file).
+    """
+    captured: dict[str, Any] = {}
+
+    class FakeCryptoDataStreamCtor:
+        def __init__(self, *, api_key: str, secret_key: str) -> None:
+            captured["api_key"] = api_key
+            captured["secret_key"] = secret_key
+
+    import alpaca.data.live.crypto as crypto_live
+
+    monkeypatch.setattr(crypto_live, "CryptoDataStream", FakeCryptoDataStreamCtor)
+    adapter = AlpacaCryptoMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+    )
+
+    adapter._build_data_stream()
+
+    assert captured["api_key"] == "key"
+    assert captured["secret_key"] == "secret"
+
+
+# ---------------------------------------------------------------------------
+# Crypto streaming — proves the inherited _AlpacaStreamIterator delivers
+# events with asset_class == CRYPTO and the BASE/QUOTE symbol passes through
+# to the alpaca subscribe_* call unchanged.
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_alpaca_crypto_subscribe_trades_emits_quote_events() -> None:
+    stream = FakeCryptoDataStream()
+    adapter = AlpacaCryptoMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=FakeCryptoHistoricalClient(),
+        data_stream=stream,
+    )
+    instruments = [Instrument(symbol="BTC/USD", asset_class=AssetClass.CRYPTO)]
+
+    agen = adapter.subscribe(instruments, [MarketChannel.TRADES])
+    event = await anext(agen)
+    await agen.aclose()
+
+    assert event.type == EventType.QUOTE
+    assert event.source == "AlpacaCryptoMarketAdapter"
+    assert event.payload.instrument.symbol == "BTC/USD"
+    assert event.payload.instrument.asset_class == AssetClass.CRYPTO
+    assert event.payload.last == Decimal("42050.10")
+    assert event.payload.last_size == Decimal("0.025")
+    # The native symbol must reach the alpaca subscribe_trades call unchanged
+    # — proves _native_symbol passes BASE/QUOTE through without splitting.
+    assert stream.subscribed_symbols["trades"] == ["BTC/USD"]
+
+
+@pytest.mark.asyncio
+async def test_alpaca_crypto_subscribe_quotes_emits_quote_events() -> None:
+    stream = FakeCryptoDataStream()
+    adapter = AlpacaCryptoMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=FakeCryptoHistoricalClient(),
+        data_stream=stream,
+    )
+    instruments = [Instrument(symbol="BTC/USD", asset_class=AssetClass.CRYPTO)]
+
+    agen = adapter.subscribe(instruments, [MarketChannel.QUOTES])
+    event = await anext(agen)
+    await agen.aclose()
+
+    assert event.type == EventType.QUOTE
+    assert event.payload.bid == Decimal("42000.45")
+    assert event.payload.ask == Decimal("42000.50")
+    assert event.payload.bid_size == Decimal("1.5")
+    assert event.payload.ask_size == Decimal("2.0")
+    assert stream.subscribed_symbols["quotes"] == ["BTC/USD"]
+
+
+@pytest.mark.asyncio
+async def test_alpaca_crypto_subscribe_bars_emits_bar_events() -> None:
+    stream = FakeCryptoDataStream()
+    adapter = AlpacaCryptoMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=FakeCryptoHistoricalClient(),
+        data_stream=stream,
+    )
+    instruments = [Instrument(symbol="BTC/USD", asset_class=AssetClass.CRYPTO)]
+
+    agen = adapter.subscribe(instruments, [MarketChannel.BARS])
+    event = await anext(agen)
+    await agen.aclose()
+
+    assert event.type == EventType.BAR
+    assert event.payload.instrument.symbol == "BTC/USD"
+    assert event.payload.instrument.asset_class == AssetClass.CRYPTO
+    assert event.payload.timeframe == Timeframe.M1
+    assert event.payload.close == Decimal("42050.55")
+    assert event.payload.volume == Decimal("12.5")
+    assert stream.subscribed_symbols["bars"] == ["BTC/USD"]
+
+
+def test_alpaca_crypto_rejects_equity_in_subscribe() -> None:
+    """Asset-class guard fires on the streaming path, not just the pull path."""
+    adapter = AlpacaCryptoMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=FakeCryptoHistoricalClient(),
+    )
+    equity = Instrument(symbol="AAPL", asset_class=AssetClass.EQUITY)
+
+    with pytest.raises(ValueError, match="only supports crypto"):
+        list(adapter.subscribe([equity], [MarketChannel.TRADES]))
+
+
+# ---------------------------------------------------------------------------
 # Lazy import + registry discovery
 # ---------------------------------------------------------------------------
 def test_alpaca_adapters_register_under_distinct_market_names() -> None:
@@ -600,8 +947,10 @@ def test_alpaca_adapters_register_under_distinct_market_names() -> None:
 
     stock_cls = registry.get("market", "alpaca", "stock")
     option_cls = registry.get("market", "alpaca", "option")
+    crypto_cls = registry.get("market", "alpaca", "crypto")
     assert stock_cls is AlpacaStockMarketAdapter
     assert option_cls is AlpacaOptionMarketAdapter
+    assert crypto_cls is AlpacaCryptoMarketAdapter
 
 
 def test_alpaca_module_does_not_import_alpaca_py_at_import_time() -> None:
@@ -648,6 +997,11 @@ def test_alpaca_adapter_construction_does_not_import_alpaca_py() -> None:
             api_secret="s",
             historical_client=FakeOptionHistoricalClient(),
         )
+        crypto = AlpacaCryptoMarketAdapter(
+            api_key="k",
+            api_secret="s",
+            historical_client=FakeCryptoHistoricalClient(),
+        )
         alpaca_modules_after = {
             name
             for name in sys.modules
@@ -656,6 +1010,7 @@ def test_alpaca_adapter_construction_does_not_import_alpaca_py() -> None:
         assert alpaca_modules_after == alpaca_modules_before
         assert stock.historical_client is not None
         assert option.historical_client is not None
+        assert crypto.historical_client is not None
     finally:
         pass
 

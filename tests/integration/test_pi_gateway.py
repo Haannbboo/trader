@@ -39,12 +39,35 @@ class _AlwaysReject:
         return RuleResult(approved=False, reason="testing rejection")
 
 
+class _BrokerRejectingAccountService:
+    async def get_balance(self):  # pragma: no cover - not used by this test
+        raise NotImplementedError
+
+    async def get_positions(self):  # pragma: no cover - not used by this test
+        raise NotImplementedError
+
+    async def get_orders(self, *, status=None, symbols=None):  # pragma: no cover
+        raise NotImplementedError
+
+    async def place_order(self, order: Order) -> Order:
+        raise ValueError("crypto market orders support time_in_force gtc or ioc")
+
+    async def cancel_order(self, broker_order_id: str) -> None:  # pragma: no cover
+        raise NotImplementedError
+
+
 def _build_gateway(*, rules: list[RiskRule] | None = None) -> AgentGateway:
     bus = InProcessBus()
     adapter = MockAccountAdapter(n_fills=0, interval_s=0.0)
     guardrail = Guardrail(rules=rules or [])
     service = AccountService(sources=[adapter], bus=bus, guardrail=guardrail)
     tools = ToolLayer(account=service)
+    return AgentGateway(tool_layer=tools, bus=bus)
+
+
+def _build_rejecting_gateway() -> AgentGateway:
+    bus = InProcessBus()
+    tools = ToolLayer(account=_BrokerRejectingAccountService())
     return AgentGateway(tool_layer=tools, bus=bus)
 
 
@@ -126,6 +149,19 @@ def test_dispatch_risk_rejected_returns_400_with_reason_and_rule() -> None:
         "reason": "testing rejection",
         "rule": "always_reject",
     }
+
+
+def test_dispatch_order_validation_error_returns_400_bad_request() -> None:
+    client = TestClient(_build_rejecting_gateway().app())
+    r = client.post(
+        "/dispatch",
+        json={"name": "place_order", "args": _place_order_args()},
+    )
+
+    assert r.status_code == 400, r.text
+    detail = r.json()["detail"]
+    assert detail["error"] == "bad_request"
+    assert "crypto market orders support" in detail["reason"]
 
 
 def test_dispatch_malformed_body_returns_422() -> None:
