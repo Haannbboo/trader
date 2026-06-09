@@ -165,13 +165,20 @@ class FakeCryptoHistoricalClient:
         return {"BTC/USD": self.quote_payload}
 
 
-class FakeCryptoDataStream:
-    """Opaque marker — ``_connect`` only stores the injected stream.
+class FakeCryptoDataStream(FakeStockDataStream):
+    """Streaming fake for the crypto adapter; mirrors FakeOptionDataStream.
 
-    No methods are needed: the pull path never calls subscribe_*/run/stop on
-    the data stream. Tests that exercise ``_build_data_stream`` directly use
-    monkeypatch instead of this fake.
+    The base class wires ``subscribe_trades`` / ``subscribe_quotes`` /
+    ``subscribe_bars`` and ``run`` (which fires one handler per registered
+    channel). We only override the payloads to use crypto fixtures so the
+    streaming tests can assert crypto-specific fields (e.g. last price 42050.10).
     """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.quote = load_fixture("crypto_quote.json")
+        self.trade = load_fixture("crypto_trade.json")
+        self.bar = load_fixture("crypto_bars.json")["bars"][0]
 
 
 # ---------------------------------------------------------------------------
@@ -839,6 +846,97 @@ def test_alpaca_crypto_data_stream_constructs_crypto_data_stream(
 
     assert captured["api_key"] == "key"
     assert captured["secret_key"] == "secret"
+
+
+# ---------------------------------------------------------------------------
+# Crypto streaming — proves the inherited _AlpacaStreamIterator delivers
+# events with asset_class == CRYPTO and the BASE/QUOTE symbol passes through
+# to the alpaca subscribe_* call unchanged.
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_alpaca_crypto_subscribe_trades_emits_quote_events() -> None:
+    stream = FakeCryptoDataStream()
+    adapter = AlpacaCryptoMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=FakeCryptoHistoricalClient(),
+        data_stream=stream,
+    )
+    instruments = [Instrument(symbol="BTC/USD", asset_class=AssetClass.CRYPTO)]
+
+    agen = adapter.subscribe(instruments, [MarketChannel.TRADES])
+    event = await anext(agen)
+    await agen.aclose()
+
+    assert event.type == EventType.QUOTE
+    assert event.source == "AlpacaCryptoMarketAdapter"
+    assert event.payload.instrument.symbol == "BTC/USD"
+    assert event.payload.instrument.asset_class == AssetClass.CRYPTO
+    assert event.payload.last == Decimal("42050.10")
+    assert event.payload.last_size == Decimal("0.025")
+    # The native symbol must reach the alpaca subscribe_trades call unchanged
+    # — proves _native_symbol passes BASE/QUOTE through without splitting.
+    assert stream.subscribed_symbols["trades"] == ["BTC/USD"]
+
+
+@pytest.mark.asyncio
+async def test_alpaca_crypto_subscribe_quotes_emits_quote_events() -> None:
+    stream = FakeCryptoDataStream()
+    adapter = AlpacaCryptoMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=FakeCryptoHistoricalClient(),
+        data_stream=stream,
+    )
+    instruments = [Instrument(symbol="BTC/USD", asset_class=AssetClass.CRYPTO)]
+
+    agen = adapter.subscribe(instruments, [MarketChannel.QUOTES])
+    event = await anext(agen)
+    await agen.aclose()
+
+    assert event.type == EventType.QUOTE
+    assert event.payload.bid == Decimal("42000.45")
+    assert event.payload.ask == Decimal("42000.50")
+    assert event.payload.bid_size == Decimal("1.5")
+    assert event.payload.ask_size == Decimal("2.0")
+    assert stream.subscribed_symbols["quotes"] == ["BTC/USD"]
+
+
+@pytest.mark.asyncio
+async def test_alpaca_crypto_subscribe_bars_emits_bar_events() -> None:
+    stream = FakeCryptoDataStream()
+    adapter = AlpacaCryptoMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=FakeCryptoHistoricalClient(),
+        data_stream=stream,
+    )
+    instruments = [Instrument(symbol="BTC/USD", asset_class=AssetClass.CRYPTO)]
+
+    agen = adapter.subscribe(instruments, [MarketChannel.BARS])
+    event = await anext(agen)
+    await agen.aclose()
+
+    assert event.type == EventType.BAR
+    assert event.payload.instrument.symbol == "BTC/USD"
+    assert event.payload.instrument.asset_class == AssetClass.CRYPTO
+    assert event.payload.timeframe == Timeframe.M1
+    assert event.payload.close == Decimal("42050.55")
+    assert event.payload.volume == Decimal("12.5")
+    assert stream.subscribed_symbols["bars"] == ["BTC/USD"]
+
+
+def test_alpaca_crypto_rejects_equity_in_subscribe() -> None:
+    """Asset-class guard fires on the streaming path, not just the pull path."""
+    adapter = AlpacaCryptoMarketAdapter(
+        api_key="key",
+        api_secret="secret",
+        historical_client=FakeCryptoHistoricalClient(),
+    )
+    equity = Instrument(symbol="AAPL", asset_class=AssetClass.EQUITY)
+
+    with pytest.raises(ValueError, match="only supports crypto"):
+        list(adapter.subscribe([equity], [MarketChannel.TRADES]))
 
 
 # ---------------------------------------------------------------------------
