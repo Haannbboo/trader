@@ -49,6 +49,14 @@ cli *args:
 agent *args:
     cd apps/agent && pnpm start -- {{args}}
 
+# TUI, continue most recent session
+agent-c:
+    cd apps/agent && pnpm start -- -c
+
+# TUI, pick from a list
+agent-r:
+    cd apps/agent && pnpm start -- -r
+
 # Start local infrastructure (Redis) in the background; waits until healthy
 up:
     docker compose -f deploy/compose.yaml up -d --wait
