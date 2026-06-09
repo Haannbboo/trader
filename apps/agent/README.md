@@ -21,12 +21,20 @@ at), and an LLM API key + model set in the repo `.env` (or your shell).
 # one-time
 pnpm install
 
-# default: anthropic
-just agent "What's my cash balance?"
+# default: TUI (interactive). Opens a session in ~/.pi/agent/sessions/.
+just agent
 
-# explicit provider via the --provider flag
-just agent --provider openai "Show me my positions"
-just agent --provider google "Summarize today's fills"
+# headless: one-shot, prints the response and exits
+just agent -p "What's my cash balance?"
+
+# TUI, continue the most recent session
+just agent -c
+
+# TUI, pick from a list of past sessions
+just agent -r
+
+# explicit provider
+just agent --provider openai -p "Show me my positions"
 ```
 
 ## Env
@@ -48,21 +56,46 @@ All four are picked up from the repo-root `.env` automatically
 
 ```sh
 # default Anthropic, base URL unset
-just agent "What's my balance?"
+just agent -p "What's my balance?"
 
 # OpenAI with a specific model
-OPENAI_MODEL=gpt-4o-mini just agent --provider openai "Quick check on positions"
+OPENAI_MODEL=gpt-4o-mini just agent --provider openai -p "Quick check on positions"
 
 # Anthropic-compatible proxy (e.g. a local LLM server speaking the
 # Anthropic wire format)
-ANTHROPIC_BASE_URL=http://localhost:8080 just agent "What's my balance?"
+ANTHROPIC_BASE_URL=http://localhost:8080 just agent -p "What's my balance?"
+
+# TUI mode: opens an interactive session, prints nothing
+just agent
+just agent -c    # continue most recent session
+just agent -r    # pick from a list
 ```
+
+## TUI mode
+
+`just agent` (no `-p`) launches the interactive TUI. The TUI:
+
+- Loads the system prompt from `apps/agent/system-prompt.md` (or
+  `AGENT_SYSTEM_PROMPT_FILE`).
+- Exposes the gateway tool catalog as `customTools`. Built-in tools
+  (read, bash, edit, write, grep, find, ls) are off by default.
+- Persists sessions to `~/.pi/agent/sessions/<repo-encoded-cwd>/`.
+  Sessions are scoped to the repo, not the `apps/agent` subdirectory.
+- Supports the framework's slash commands: `/new`, `/resume`, `/fork`,
+  model switching via Ctrl+P, etc.
+
+The system-prompt file and the four optional features are toggled via
+env vars in the repo-root `.env`:
+
+| Var | Default | Effect |
+|---|---|---|
+| `AGENT_SYSTEM_PROMPT_FILE` | `<repo>/apps/agent/system-prompt.md` | Path to the system-prompt markdown. Required. |
+| `AGENT_ENABLE_SKILLS` | `false` | When `true`, the SDK discovers skills. |
+| `AGENT_ENABLE_CONTEXT_FILES` | `false` | When `true`, AGENTS.md / CLAUDE.md are loaded. |
+| `AGENT_ENABLE_EXTENSIONS` | `false` | When `true`, project-level extensions are loaded. |
+| `AGENT_ENABLE_BUILTIN_TOOLS` | `false` | When `true`, the agent gets read/bash/edit/write/grep/find/ls. |
 
 ## Status
 
-v1 = one-shot only. No REPL, no `/stream` event injection, no session
-persistence. Each `just agent` invocation is a fresh `Agent` instance.
-
-When those land, they'll be configuration of the existing framework
-hooks (`beforeToolCall`, `afterToolCall`, `transformContext`), not new
-infrastructure.
+v2 = interactive TUI (default) + one-shot headless (`-p`) + persistent
+sessions (`-c` / `-r`). Gateway tool surface is unchanged from v1.
