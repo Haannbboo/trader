@@ -186,8 +186,10 @@ class ToolLayer:
                         "tif": {
                             "type": "string",
                             "enum": ["day", "gtc", "ioc", "fok"],
-                            "default": "day",
-                            "description": "Time in force.",
+                            "description": (
+                                "Time in force. Defaults to day for equities and gtc "
+                                "for crypto."
+                            ),
                         },
                     },
                     "required": ["client_order_id", "symbol", "side", "quantity"],
@@ -693,11 +695,17 @@ class ToolLayer:
         """Translate flat agent args into a typed Order. Kept explicit because
         this is the boundary where loose tool input becomes a money-moving DTO —
         validate hard here."""
+        asset_class = AssetClass(args.get("asset_class", "equity"))
+        tif = args.get("tif")
+        if tif is None:
+            # Alpaca crypto orders cannot use the equity-oriented DAY default.
+            tif = "gtc" if asset_class is AssetClass.CRYPTO else "day"
+
         return Order(
             client_order_id=args["client_order_id"],
             instrument=Instrument(
                 symbol=args["symbol"],
-                asset_class=AssetClass(args.get("asset_class", "equity")),
+                asset_class=asset_class,
             ),
             side=Side(args["side"]),
             quantity=Decimal(str(args["quantity"])),
@@ -707,5 +715,5 @@ class ToolLayer:
                 if args.get("limit_price") is not None
                 else None
             ),
-            tif=TimeInForce(args.get("tif", "day")),
+            tif=TimeInForce(tif),
         )

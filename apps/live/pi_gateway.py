@@ -16,7 +16,8 @@ Three endpoints, mirroring the two interaction kinds the system already has:
 
 Error mapping at the seam (the only policy decision in this file):
     RiskRejected -> 400 {"error":"risk_rejected","reason":..., "rule":...}
-    ValueError   -> 400 {"error":"bad_request",   "reason":...}
+    ValueError / OrderRejectedError
+                 -> 400 {"error":"bad_request",   "reason":...}
     other        -> 500 (logged via loguru; body is FastAPI's default)
 
 Everything crossing this seam is JSON-able and language-neutral on purpose, so
@@ -29,6 +30,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, AsyncIterator
 
+from contracts.errors import OrderRejectedError
 from contracts.gateway import DispatchRequest  # pyrefly: ignore [missing-import]
 from contracts.ports import Bus, Subscription  # pyrefly: ignore [missing-import]
 from contracts.schema import (
@@ -159,7 +161,7 @@ class AgentGateway:
                     "rule": e.rule,
                 },
             )
-        except ValueError as e:
+        except (OrderRejectedError, ValueError) as e:
             raise HTTPException(
                 status_code=400,
                 detail={"error": "bad_request", "reason": str(e)},

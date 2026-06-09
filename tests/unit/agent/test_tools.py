@@ -251,6 +251,21 @@ async def test_dispatch_account_tools() -> None:
     assert account.placed_order.quantity == Decimal("5")
     assert account.placed_order.limit_price == Decimal("175.50")
 
+    # crypto place_order: agent calls often omit tif, but Alpaca crypto market
+    # orders cannot use the equity-oriented DAY default.
+    crypto_args = {
+        "client_order_id": "btc-buy-001-20260609",
+        "symbol": "BTC/USD",
+        "asset_class": "crypto",
+        "side": "buy",
+        "quantity": "0.001",
+        "order_type": "market",
+    }
+    await layer.dispatch("place_order", crypto_args)
+    assert account.placed_order is not None
+    assert account.placed_order.instrument.asset_class == AssetClass.CRYPTO
+    assert account.placed_order.tif == TimeInForce.GTC
+
     # cancel_order
     cancel_res = await layer.dispatch("cancel_order", {"broker_order_id": "broker-456"})
     assert cancel_res["status"] == "success"
