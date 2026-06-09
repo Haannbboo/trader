@@ -46,16 +46,9 @@ cli *args:
     uv run python apps/cli/main.py {{args}}
 
 # Drive a one-shot Pi Agent against the live gateway (apps/live must be running)
+# Flags: -p "<prompt>" (headless), -c (continue last session), -r (resume picker)
 agent *args:
     cd apps/agent && pnpm start -- {{args}}
-
-# TUI, continue most recent session
-agent-c:
-    cd apps/agent && pnpm start -- -c
-
-# TUI, pick from a list
-agent-r:
-    cd apps/agent && pnpm start -- -r
 
 # Start local infrastructure (Redis) in the background; waits until healthy
 up:
