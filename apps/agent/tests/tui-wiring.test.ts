@@ -102,6 +102,50 @@ describe("buildSessionManager", () => {
     const { SessionManager } = await import("@earendil-works/pi-coding-agent");
     const { buildSessionManager } = await import("../src/tui.js");
     const sm = buildSessionManager({ kind: "new" }, "/repo");
-    expect(sm.constructor.name).toBe(SessionManager.create("/repo").constructor.name);
+    expect(sm).toBeInstanceOf(SessionManager);
+    expect(sm.getSessionFile()).toBeTruthy();
+  });
+
+  it("returns SessionManager.continueRecent(cwd) for kind='continue'", async () => {
+    // The "no prior session" case is the caller's responsibility (it
+    // must call SessionManager.list first); this function always
+    // delegates to continueRecent. We pass a real tmp dir as cwd.
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const emptyCwd = mkdtempSync(join(tmpdir(), "agent-test-"));
+    try {
+      const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+      const { buildSessionManager } = await import("../src/tui.js");
+      const sm = buildSessionManager({ kind: "continue" }, emptyCwd);
+      expect(sm).toBeInstanceOf(SessionManager);
+    } finally {
+      rmSync(emptyCwd, { recursive: true, force: true });
+    }
+  });
+
+  it("throws ConfigError for kind='resume' when no resumedPath is provided", async () => {
+    const { buildSessionManager } = await import("../src/tui.js");
+    expect(() => buildSessionManager({ kind: "resume" }, "/repo")).toThrow(
+      /internal error.*resumedPath/,
+    );
+  });
+
+  it("returns SessionManager.open(path) for kind='resume' when resumedPath is set", async () => {
+    const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+    const { writeFileSync, mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    // SessionManager.open needs a real path whose parent exists.
+    const dir = mkdtempSync(join(tmpdir(), "agent-test-"));
+    const realPath = join(dir, "session.jsonl");
+    writeFileSync(realPath, "");
+    try {
+      const { buildSessionManager } = await import("../src/tui.js");
+      const sm = buildSessionManager({ kind: "resume" }, "/repo", { resumedPath: realPath });
+      expect(sm).toBeInstanceOf(SessionManager);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

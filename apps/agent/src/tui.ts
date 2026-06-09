@@ -92,9 +92,14 @@ export function buildSessionOptions(
 /**
  * Pure: map a SessionSpec + cwd to a SessionManager.
  * - "new"      → SessionManager.create(cwd)
- * - "continue" → SessionManager.continueRecent(cwd); if no prior session,
- *                throw ConfigError so the caller can exit 1 with a message.
+ * - "continue" → SessionManager.continueRecent(cwd)
  * - "resume"   → SessionManager.open(<path from picker>)
+ *
+ * The "no prior session" check for `-c` is the caller's responsibility —
+ * use `SessionManager.list(cwd)` first to detect the empty case. The
+ * framework's `continueRecent` pre-allocates a future session file even
+ * when no prior session exists, so we can't detect that case from
+ * `getSessionFile()` alone.
  */
 export function buildSessionManager(
   spec: SessionSpec,
@@ -105,15 +110,7 @@ export function buildSessionManager(
     return SessionManager.create(cwd);
   }
   if (spec.kind === "continue") {
-    const sm = SessionManager.continueRecent(cwd);
-    // The framework returns a fresh manager with no session file when
-    // there is no prior session. Detect that and surface a clear error.
-    if (!sm.getSessionFile()) {
-      throw new ConfigError(
-        "-c: no prior session found for this project (run without -c to start a new session)",
-      );
-    }
-    return sm;
+    return SessionManager.continueRecent(cwd);
   }
   // spec.kind === "resume"
   if (!options?.resumedPath) {
@@ -153,6 +150,19 @@ export async function runTui(config: ResolvedConfig): Promise<void> {
       resumedPath = chosen;
     } finally {
       rl.close();
+    }
+  }
+
+  // Handle -c with no prior session: the framework's continueRecent
+  // pre-allocates a future session file even when there's no prior
+  // session, so we have to check the session list ourselves.
+  if (config.session.kind === "continue") {
+    const prior = await SessionManager.list(cwd);
+    if (prior.length === 0) {
+      console.error(
+        "[agent] -c: no prior session found for this project (run without -c to start a new session)",
+      );
+      process.exit(1);
     }
   }
 
@@ -200,7 +210,7 @@ export async function runTui(config: ResolvedConfig): Promise<void> {
   // Surface error-level diagnostics before booting the TUI.
   const errors = runtime.diagnostics.filter((d) => d.type === "error");
   if (errors.length > 0) {
-    for (const d of runtime.diagnostics) {
+    for (const d of errors) {
       console.error(`[agent] ${d.type}: ${d.message}`);
     }
     process.exit(1);
