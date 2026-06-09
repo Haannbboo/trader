@@ -23,7 +23,12 @@ if (existsSync(envPath)) {
 
 let resolved: ResolvedConfig;
 try {
-	resolved = resolveConfig(process.argv.slice(2), process.env);
+	// The justfile invokes us via `pnpm start -- {{args}}`. pnpm passes the
+	// `--` through to the script, which would otherwise look like an unknown
+	// flag to our argv parser. Strip a single leading `--` separator.
+	const argv = process.argv.slice(2);
+	const stripped = argv[0] === "--" ? argv.slice(1) : argv;
+	resolved = resolveConfig(stripped, process.env);
 } catch (e) {
 	if (e instanceof ConfigError) {
 		console.error(`[agent] ${e.message}`);
