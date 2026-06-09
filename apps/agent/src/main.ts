@@ -12,6 +12,7 @@ import { config as dotenvConfig } from "dotenv";
 import { ConfigError, type ResolvedConfig, resolveConfig } from "./config.js";
 import { findRepoRoot } from "./repo.js";
 import { runHeadless } from "./headless.js";
+import { runTui } from "./tui.js";
 
 // .env loading: walk up from this file to find the repo root, then load
 // `.env` from there if present. Explicit shell env always wins over .env.
@@ -33,5 +34,6 @@ try {
 
 if (resolved.mode === "headless") {
 	await runHeadless(resolved);
-	// TUI mode wiring lands in Task 9.
+} else {
+	await runTui(resolved);
 }
