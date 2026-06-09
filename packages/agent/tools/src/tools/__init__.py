@@ -85,8 +85,10 @@ class ToolLayer:
             "cancel_order",
             "get_stock_quote",
             "get_option_quote",
+            "get_crypto_quote",
             "get_stock_bars",
             "get_option_bars",
+            "get_crypto_bars",
             "query_news",
             "get_factor",
             "get_rsi",
@@ -329,6 +331,51 @@ class ToolLayer:
                     },
                 }
             )
+            specs.append(
+                {
+                    "name": "get_crypto_quote",
+                    "description": "Fetch the current bid/ask quote for a crypto instrument.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "symbol": {
+                                "type": "string",
+                                "description": "Symbol of the crypto pair in BASE/QUOTE form (e.g. BTC/USD).",
+                            },
+                        },
+                        "required": ["symbol"],
+                    },
+                }
+            )
+            specs.append(
+                {
+                    "name": "get_crypto_bars",
+                    "description": "Fetch historical bars for a crypto instrument.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "symbol": {
+                                "type": "string",
+                                "description": "Symbol of the crypto pair in BASE/QUOTE form (e.g. BTC/USD).",
+                            },
+                            "timeframe": {
+                                "type": "string",
+                                "enum": ["1s", "1m", "5m", "15m", "1h", "1d"],
+                                "description": "Bar timeframe size.",
+                            },
+                            "start": {
+                                "type": "string",
+                                "description": "Start ISO-8601 timestamp (e.g. 2026-06-01T00:00:00Z) in UTC.",
+                            },
+                            "end": {
+                                "type": "string",
+                                "description": "End ISO-8601 timestamp (e.g. 2026-06-02T00:00:00Z) in UTC.",
+                            },
+                        },
+                        "required": ["symbol", "timeframe", "start", "end"],
+                    },
+                }
+            )
 
         if self._news is not None:
             specs.append(
@@ -450,7 +497,7 @@ class ToolLayer:
         """Route ONE tool call to the owning service method; validate args;
         serialize the result. Maps:
             get_balance/get_positions/place_order/cancel_order -> account
-            get_stock_quote/get_option_quote/get_stock_bars/get_option_bars -> market
+            get_stock_quote/get_option_quote/get_crypto_quote/get_stock_bars/get_option_bars/get_crypto_bars -> market
             query_news                                         -> news
             get_factor                                         -> features
         place_order goes through AccountService (-> guardrail); the tool layer
@@ -506,6 +553,25 @@ class ToolLayer:
                 raise ValueError("Market service is not available")
             instrument = Instrument(
                 symbol=args["symbol"], asset_class=AssetClass.OPTION
+            )
+            timeframe = Timeframe(args["timeframe"])
+            start = datetime.fromisoformat(args["start"].replace("Z", "+00:00"))
+            end = datetime.fromisoformat(args["end"].replace("Z", "+00:00"))
+            bars = await self._market.get_bars(instrument, timeframe, start, end)
+            return {"bars": self._serialize(bars)}
+        elif name == "get_crypto_quote":
+            if self._market is None:
+                raise ValueError("Market service is not available")
+            instrument = Instrument(
+                symbol=args["symbol"], asset_class=AssetClass.CRYPTO
+            )
+            quote = await self._market.get_quote(instrument)
+            return self._serialize(quote)
+        elif name == "get_crypto_bars":
+            if self._market is None:
+                raise ValueError("Market service is not available")
+            instrument = Instrument(
+                symbol=args["symbol"], asset_class=AssetClass.CRYPTO
             )
             timeframe = Timeframe(args["timeframe"])
             start = datetime.fromisoformat(args["start"].replace("Z", "+00:00"))
