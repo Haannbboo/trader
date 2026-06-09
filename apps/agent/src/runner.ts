@@ -7,17 +7,16 @@
  * Both functions are pure wrt the inputs they receive. The runner is
  * responsible for resolving paths and environment variables before calling
  * them; this module just does the I/O and the SDK glue.
+ *
+ * `ConfigError` is defined in `config.ts` and re-exported here for
+ * ergonomic single-import consumers.
  */
 
 import { readFile } from "node:fs/promises";
 import { getModel, getModels, type Model } from "@earendil-works/pi-ai";
+import { ConfigError } from "./config.js";
 
-export class ConfigError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ConfigError";
-  }
-}
+export { ConfigError };
 
 /**
  * Read a system-prompt markdown file. Throws ConfigError on missing or

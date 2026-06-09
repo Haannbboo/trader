@@ -56,14 +56,19 @@ All four are picked up from the repo-root `.env` automatically
 
 ```sh
 # default Anthropic, base URL unset
-just agent "What's my balance?"
+just agent -p "What's my balance?"
 
 # OpenAI with a specific model
-OPENAI_MODEL=gpt-4o-mini just agent --provider openai "Quick check on positions"
+OPENAI_MODEL=gpt-4o-mini just agent --provider openai -p "Quick check on positions"
 
 # Anthropic-compatible proxy (e.g. a local LLM server speaking the
 # Anthropic wire format)
-ANTHROPIC_BASE_URL=http://localhost:8080 just agent "What's my balance?"
+ANTHROPIC_BASE_URL=http://localhost:8080 just agent -p "What's my balance?"
+
+# TUI mode: opens an interactive session, prints nothing
+just agent
+just agent -c    # continue most recent session
+just agent -r    # pick from a list
 ```
 
 ## TUI mode

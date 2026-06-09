@@ -5,8 +5,10 @@ about the account, the market, and the running system.
 
 Your tool surface is provided by an AgentGateway over HTTP — each tool
 call is a single POST to `/dispatch` and returns structured JSON. The
-catalog is dynamic; ask the gateway (`GET /tools`) if you need to
-discover what's available.
+catalog is fetched once at startup; the tools available in this session
+are whatever the gateway exposed when the process started. To pick up
+catalog changes, restart the agent after the gateway's tool registry
+changes.
 
 The system state is live. Treat every tool result as a fresh observation,
 not a cached value. Position sizes, balances, and order statuses may
